@@ -2,6 +2,7 @@ import { Service, type Context } from '@deepseek-ai/cordis'
 import {
   SessionId,
   snapshotJsonValue,
+  type JsonValue,
   type Session,
   type SessionId as SessionIdType,
 } from '@deepseek-ai/dsh-session'
@@ -97,7 +98,7 @@ export class TheaterRuntime extends Service {
     if (input.performanceId.trim() === '') throw new Error('performanceId must be non-empty')
     const scenario = this.requireScenario<TConfig>(input.scenarioId)
     const parsedConfig = scenario.parseConfig(input.config)
-    const storedConfig = snapshotJsonValue(parsedConfig)
+    const storedConfig = snapshotJsonValue(parsedConfig) as JsonValue | undefined
     if (storedConfig === undefined) {
       throw new Error(`scenario ${JSON.stringify(input.scenarioId)} returned non-JSON configuration`)
     }
