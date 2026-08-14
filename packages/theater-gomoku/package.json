@@ -1,0 +1,47 @@
+{
+  "name": "@darwintree/dsh-theater-gomoku",
+  "version": "0.1.0",
+  "description": "Gomoku scenario plugin for @darwintree/dsh-theater",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./state": {
+      "types": "./dist/state.d.ts",
+      "default": "./dist/state.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/darwintree/dsh-theater.git",
+    "directory": "packages/theater-gomoku"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run tests"
+  },
+  "peerDependencies": {
+    "@darwintree/dsh-theater": "workspace:^",
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.5",
+    "@deepseek-ai/dsh-session": "0.1.0-rc.5",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.5"
+  },
+  "devDependencies": {
+    "@darwintree/dsh-theater": "workspace:^"
+  }
+}

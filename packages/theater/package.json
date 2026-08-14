@@ -1,0 +1,46 @@
+{
+  "name": "@darwintree/dsh-theater",
+  "version": "0.1.0",
+  "description": "DSH-native multi-agent performance orchestration primitives",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./events": {
+      "types": "./dist/events.d.ts",
+      "default": "./dist/events.js"
+    },
+    "./scenario": {
+      "types": "./dist/scenario.d.ts",
+      "default": "./dist/scenario.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/darwintree/dsh-theater.git",
+    "directory": "packages/theater"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run tests"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.5",
+    "@deepseek-ai/dsh-session": "0.1.0-rc.5"
+  }
+}
