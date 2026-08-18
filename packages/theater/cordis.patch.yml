@@ -1,0 +1,3 @@
+- insert:
+    - id: theater
+      name: '@darwintree/dsh-theater'
