@@ -1,6 +1,7 @@
 {
   "files": [],
   "references": [
+    { "path": "./packages/llm-mock" },
     { "path": "./packages/theater" }
   ]
 }
