@@ -89,7 +89,7 @@ updated_at: "2026-08-18T09:34:00Z"
 - Use the AgentLoop plus ToolRuntime seam for the highest-level Gomoku behavior: missing Agent failure, temporary Stage ID derivation, user black move, Agent white move in a later model step, full-board rendering, and natural completion without `concludeTurn()`.
 - Reuse the previous Stage create/open/replay and Agent resume tests as behavioral prior art, the previous Gomoku state tests as rule prior art, and the current greet integration test as AgentLoop/MockLlm pipeline prior art.
 - Do not add concurrency, disposal, or retry tests because those contracts are outside this spec.
-- [ ] Before closing the issue, perform a line-by-line audit of the Stage slice discussion trace and confirm that every recorded decision is implemented or explicitly excluded as recorded.
+- [x] Before closing the issue, perform a line-by-line audit of the Stage slice discussion trace and confirm that every recorded decision is implemented or explicitly excluded as recorded.
 
 ## Out of Scope
 

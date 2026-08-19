@@ -1,0 +1,3 @@
+- insert:
+    - id: theater-gomoku
+      name: '@darwintree/dsh-theater-gomoku'
