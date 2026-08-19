@@ -2,11 +2,11 @@
 # This section is managed by the CLI. Do not edit manually.
 id: "c6c1fe56-188c-4e0c-8f34-a3a68d42207e"
 title: "Implement Stage service and Gomoku state machine"
-status: "open"
+status: "closed"
 priority: "high"
 labels: ["READY-FOR-AGENT"]
 created_at: "2026-08-18T09:29:00Z"
-updated_at: "2026-08-18T09:34:00Z"
+updated_at: "2026-08-19T03:34:00Z"
 ---
 ## Problem Statement
 
@@ -108,3 +108,7 @@ updated_at: "2026-08-18T09:34:00Z"
 - The general resolver is tracked by [[20260818_open_provide-tool-to-stageid-resolution|Provide tool-to-stageId resolution]].
 - The [Stage slice discussion trace](../docs/traces/discussion/2026-08-18-stage-slice.md) is the complete record of resolved questions.
 - The accepted Stage ID ADR records the durable identity and accepted-Op persistence boundary.
+
+## Resolution
+
+Implemented in commit `c74fcd6` on `main`. Added independent `packages/stage` (`ctx.stages` Service: `ensure`/`interact`/`read`/`completed` with a live registry keyed by Stage ID, persistence via the calling Agent Session, accepted-Op flush-before-success, and ordered cold replay) and `packages/theater-gomoku` (pure Gomoku State Machine with `transition(op)` plus the global `place_stone` tool deriving `${sessionId}-stage`, recording the user black move then the agent white move, rendering the full board, and never calling `concludeTurn()`). The greet scaffold is retained. All 30 user stories and 29 discussion-trace decisions are implemented or explicitly excluded as recorded; the audit checkbox is ticked. Build and the full test suite (31 tests across 7 files) pass.
