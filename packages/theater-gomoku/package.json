@@ -11,7 +11,7 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist", "cordis.patch.yml", "README.md"],
+  "files": ["dist", "preset", "cordis.patch.yml", "README.md"],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
