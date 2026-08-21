@@ -1,5 +1,9 @@
 ## Agent skills
 
+### Migration context
+
+This repository is the rewrite target for the ongoing `agents-chat` to DSH migration. The completed demo lives in the sibling `dsh-theater` checkout; `dsh-theater-new` is a separate branch of the same repository and should use that demo as its reference implementation.
+
 ### Issue tracker
 
 Issues and specs live under `.issues/` and are managed with the installed `dot-issues` skill. See `docs/agents/issue-tracker.md`.
