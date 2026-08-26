@@ -13,10 +13,12 @@ import LlmRuntime, { LlmError } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
 import { MockLlmAdapter, type Behaviour, type MockResponse } from '@darwintree/dsh-llm-mock'
 import StageService from '@darwintree/dsh-stage'
+import * as Gomoku from '../../theater-gomoku/src/index.ts'
+import * as GomokuTheater from '../../theater-gomoku/src/theater.ts'
 import TheaterService, { characterSessionId } from '../src/index.ts'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
@@ -29,6 +31,18 @@ const defaultPlan: MovePlan = sessionId => sessionId.endsWith('/characters/black
 
 function moveScript(sessionId: string, assistantCount: number, plan: MovePlan): MockResponse {
   const moves = plan(sessionId)
+  if (sessionId.endsWith('/characters/white')) {
+    const move = moves[assistantCount]
+    if (move === undefined) throw new Error(`unexpected model call for ${sessionId}`)
+    return {
+      content: [{
+        type: 'tool-call',
+        id: `${sessionId}-move-${assistantCount}`,
+        name: 'place_stone',
+        arguments: JSON.stringify({ x: move[0], y: move[1] }),
+      }],
+    }
+  }
   const move = moves[Math.floor(assistantCount / 2)]
   if (move === undefined) throw new Error(`unexpected model call for ${sessionId}`)
   return assistantCount % 2 === 0
@@ -73,6 +87,7 @@ async function setup(
     })
   }
   await ctx.plugin(StageService)
+  await ctx.plugin(Gomoku)
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
@@ -89,48 +104,66 @@ async function setup(
       options.messages.filter(message => message.role === 'assistant').length,
       plan,
     ))))
-  if (options.mountTheater !== false) await ctx.plugin(TheaterService)
+  if (options.mountTheater !== false) {
+    await ctx.plugin(TheaterService)
+    await ctx.plugin(GomokuTheater)
+  }
   return ctx
 }
 
 async function writeCompatibilityPresets(
   root: string,
   config: {
-    characters: readonly { id: string; agentPreset: string }[]
+    characters: readonly { id: string; color: 'black' | 'white'; read: boolean }[]
     boardSize: number
   },
 ): Promise<void> {
-  const plugin = join(FIXTURES, 'plugins', 'configurable-assembly.js')
-  const characterPlugin = join(FIXTURES, '..', '..', '..', 'theater-gomoku', 'dist', 'character.js')
-  const rows = config.characters.map(character => [
-    '    - id: ' + character.id,
-    '      agentPreset: ' + character.agentPreset,
-  ].join('\n')).join('\n')
+  const stagePreset = join(FIXTURES, '..', '..', '..', 'stage', 'dist', 'preset.js')
+  const theaterPreset = join(FIXTURES, '..', '..', 'dist', 'preset.js')
+  const director = join(FIXTURES, 'plugins', 'complete-director.js')
+  const rows = config.characters.flatMap(character => [
+    `      ${character.id}:`,
+    '        tools:',
+    ...character.read ? [
+      '          - factory: gomoku-read-board',
+      '            params: { stage: board1 }',
+    ] : [],
+    '          - factory: gomoku-place-stone',
+    `            params: { stage: board1, color: ${character.color} }`,
+  ]).join('\n')
   await mkdir(join(root, 'compat'), { recursive: true })
   await writeFile(join(root, 'compat', 'agent.cordis.yml'), [
-    '- id: assembly',
-    `  name: ${JSON.stringify(plugin)}`,
+    '- id: stages',
+    `  name: ${JSON.stringify(stagePreset)}`,
     '  config:',
-    `    boardSize: ${config.boardSize}`,
+    '    stages:',
+    '      board1:',
+    '        machine: gomoku',
+    `        params: { boardSize: ${config.boardSize}, winLength: 3 }`,
+    '- id: performance',
+    `  name: ${JSON.stringify(theaterPreset)}`,
+    '  config:',
     '    characters:',
     rows,
+    '- id: director',
+    `  name: ${JSON.stringify(director)}`,
     '',
   ].join('\n'))
-  for (const color of ['black', 'white'] as const) {
-    await mkdir(join(root, `gomoku-${color}`), { recursive: true })
-    await writeFile(join(root, `gomoku-${color}`, 'agent.cordis.yml'), [
-      `- id: gomoku-${color}`,
-      `  name: ${JSON.stringify(characterPlugin)}`,
-      '  config:',
-      `    color: ${color}`,
-      '',
-    ].join('\n'))
-  }
 }
 
 describe('Performance Theater', () => {
   it('owns the Main Loop and repeatedly evaluates a single-step Director until terminal Stage state', async () => {
     const ctx = await setup()
+    ctx.tools.register(defineTool({
+      name: 'host_tool',
+      description: 'A host Tool that must not leak into Character Tool lists.',
+      parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
+      async execute() { return 'host' },
+    }))
     const performanceId = SessionId('performance-create')
     const flushes: Array<{
       sessionId: string
@@ -197,12 +230,17 @@ describe('Performance Theater', () => {
 
     for (const character of ['black', 'white'] as const) {
       const characterSession = ctx.sessions.get(characterSessionId(performanceId, character))!
-      expect(characterSession.header.agentPreset).toBe(`gomoku-${character}`)
+      expect(characterSession.header.agentPreset).toBeUndefined()
+      expect(characterSession.events.some(event => event.type === 'agent-preset/selected')).toBe(false)
       expect(characterSession.events.some(event => event.type === 'user/message')).toBe(true)
       expect(characterSession.events.some(event => event.type === 'tool/call')).toBe(true)
       expect(characterSession.events.some(event => event.type === 'stage/op')).toBe(false)
       expect(JSON.stringify(characterSession.events)).not.toContain('stage/op')
     }
+    const black = ctx.agents.get(characterSessionId(performanceId, 'black'))!
+    const white = ctx.agents.get(characterSessionId(performanceId, 'white'))!
+    expect(ctx.tools.schemas(black).map(tool => tool.name)).toEqual(['read_board', 'place_stone'])
+    expect(ctx.tools.schemas(white).map(tool => tool.name)).toEqual(['place_stone'])
   })
 
   it('forks initial and settled Director Points with Character watermarks and rejects an open Segment cursor atomically', async () => {
@@ -399,11 +437,11 @@ describe('Performance Theater', () => {
     }
   })
 
-  it('keeps historical reads available while refusing incompatible roster, Character preset, or Stage config', async () => {
+  it('keeps historical reads available while refusing incompatible roster, Character Tool plan, or Stage config', async () => {
     const original = {
       characters: [
-        { id: 'black', agentPreset: 'gomoku-black' },
-        { id: 'white', agentPreset: 'gomoku-white' },
+        { id: 'black', color: 'black' as const, read: true },
+        { id: 'white', color: 'white' as const, read: false },
       ],
       boardSize: 3,
     }
@@ -413,10 +451,10 @@ describe('Performance Theater', () => {
         current: { characters: [original.characters[0]!], boardSize: 3 },
       },
       {
-        name: 'Character preset',
+        name: 'Character Tool plan',
         current: {
           characters: [
-            { id: 'black', agentPreset: 'gomoku-white' },
+            { ...original.characters[0]!, read: false },
             original.characters[1]!,
           ],
           boardSize: 3,

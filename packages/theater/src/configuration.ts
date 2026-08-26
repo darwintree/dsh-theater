@@ -1,14 +1,12 @@
 import {
   SessionId,
-  snapshotJsonValue,
-  type Session,
+  type JsonValue,
   type SessionId as SessionIdType,
 } from '@deepseek-ai/dsh-session'
-import type { StageConfigured } from '@darwintree/dsh-stage'
+import type { StageConfigured, StateMachineFactory } from '@darwintree/dsh-stage'
 import type {
-  TheaterCharacterContribution,
   TheaterConfigured,
-  TheaterStageContribution,
+  TheaterToolFactory,
 } from './types.js'
 
 export function nonEmpty(value: string, label: string): string {
@@ -31,8 +29,15 @@ export function characterSessionId(
 export function resolvedConfiguration(
   presetId: string,
   contributions: {
-    readonly characters: readonly TheaterCharacterContribution[]
-    readonly stages: readonly TheaterStageContribution[]
+    readonly characters: readonly {
+      readonly id: string
+      readonly tools: readonly { readonly factory: TheaterToolFactory; readonly config: JsonValue }[]
+    }[]
+    readonly stages: readonly {
+      readonly stageId: string
+      readonly factory: StateMachineFactory
+      readonly config: JsonValue
+    }[]
   },
 ): TheaterConfigured {
   nonEmpty(presetId, 'Agent Preset ID')
@@ -43,20 +48,27 @@ export function resolvedConfiguration(
     const id = nonEmpty(character.id, 'Character ID')
     if (characterIds.has(id)) throw new Error(`duplicate Character ID ${JSON.stringify(id)}`)
     characterIds.add(id)
-    return { id, agentPreset: nonEmpty(character.agentPreset, `Agent Preset for Character ${JSON.stringify(id)}`) }
+    if (character.tools.length === 0) {
+      throw new Error(`Character ${JSON.stringify(id)} requires at least one Tool`)
+    }
+    return {
+      id,
+      tools: character.tools.map(tool => ({
+        factory: nonEmpty(tool.factory.kind, `Tool factory for Character ${JSON.stringify(id)}`),
+        config: tool.config,
+      })),
+    }
   })
   const stageIds = new Set<string>()
   const stages = contributions.stages.map((stage): StageConfigured => {
     const stageId = nonEmpty(stage.stageId, 'Stage ID')
     if (stageIds.has(stageId)) throw new Error(`duplicate Stage ID ${JSON.stringify(stageId)}`)
     stageIds.add(stageId)
-    const config = snapshotJsonValue(stage.factory.resolveConfig(stage.config ?? {}))
-    if (config === undefined) throw new Error(`Stage ${JSON.stringify(stageId)} configuration must be lossless JSON`)
     return {
       stageId,
       machine: nonEmpty(stage.factory.kind, 'State Machine kind'),
       version: nonEmpty(stage.factory.version, 'State Machine version'),
-      config,
+      config: stage.config,
     }
   })
   return { presetId, characters, stages }
@@ -64,12 +76,6 @@ export function resolvedConfiguration(
 
 export function compatible(current: TheaterConfigured, durable: TheaterConfigured): boolean {
   return JSON.stringify(current) === JSON.stringify(durable)
-}
-
-export function selectedAgentPreset(session: Session): string | undefined {
-  const selected = [...session.events].reverse()
-    .find(event => event.type === 'agent-preset/selected')
-  return selected?.type === 'agent-preset/selected' ? selected.data.agentPreset : undefined
 }
 
 export function failure(error: unknown, code = 'UNKNOWN'): { message: string; code: string } {

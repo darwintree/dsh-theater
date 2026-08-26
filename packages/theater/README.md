@@ -1,10 +1,10 @@
 # dsh-theater
 
-`ctx.theater` composes durable multi-Character Performances from existing Agent
-Presets. A Performance Session is the public root and is not driven by an Agent
-Loop. Plugins in its preset independently contribute fixed Characters and their
-Agent Presets, Stages, and exactly one domain-owned Director. Theater combines
-those contributions when it creates, resumes, or forks a Performance.
+`ctx.theater` composes durable multi-Character Performances from one preset. A
+Performance Session is the public root and is not driven by an Agent Loop. The
+preset declares Stages, each Character's complete Tool creation plan, and
+exactly one domain-owned Director. Theater combines those declarations when it
+creates, resumes, or forks a Performance.
 
 ```ts
 await ctx.theater.create({ performanceId, presetId })
@@ -18,7 +18,9 @@ await ctx.theater.fork({
 })
 ```
 
-Character Agent Loops run in separate deterministically named Sessions. Each
+Bare Character Agent Loops run in separate deterministically named Sessions.
+Theater materializes ordinary Tools against the current Performance's Stages
+and registers the exact list in each Character Agent scope. Each
 invocation is enclosed by durable `theater/segment-started` and
 `theater/segment-ended` events in the Performance Session. Only prefixes with
 an empty Segment stack are forkable; each Segment end records the acting

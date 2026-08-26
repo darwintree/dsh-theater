@@ -1,5 +1,32 @@
-- id: theater-gomoku
-  name: '@darwintree/dsh-theater-gomoku/two-character'
+- id: stages
+  name: '@darwintree/dsh-stage/preset'
   config:
-    blackPreset: gomoku-black
-    whitePreset: gomoku-white
+    stages:
+      board1:
+        machine: gomoku
+        params:
+          boardSize: 15
+          winLength: 5
+- id: performance
+  name: '@darwintree/dsh-theater/preset'
+  config:
+    characters:
+      black:
+        tools:
+          - factory: gomoku-read-board
+            params:
+              stage: board1
+          - factory: gomoku-place-stone
+            params:
+              stage: board1
+              color: black
+      white:
+        tools:
+          - factory: gomoku-place-stone
+            params:
+              stage: board1
+              color: white
+- id: director
+  name: '@darwintree/dsh-theater-gomoku/director'
+  config:
+    stage: board1

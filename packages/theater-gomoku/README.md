@@ -30,10 +30,13 @@ await ctx.plugin(GomokuPlugin)   // registers the gomoku factory
 See the repository-level [assembly and runtime flows](../../docs/runtime-flows.md)
 for the direct Agent and Theater Performance lifecycles.
 
-The Theater Character presets register `read_board` and a color-bound
-`place_stone(x, y)`. Board reads stay in the Character Session without a Stage
-Op. Accepted placements call `concludeTurn()`; rejected placements remain in
-the same Character turn for retry.
+The Theater preset gives black `read_board` plus a color-bound
+`place_stone(x, y)`, and gives white only its color-bound `place_stone`. Theater
+materializes those ordinary Tools against the Performance-owned board; the
+Tools do not inspect Character or owner Session IDs. Board reads stay in the
+Character Session without a Stage Op. Accepted placements call
+`concludeTurn()`; rejected placements remain in the same Character turn for
+retry.
 
 ## Presets
 

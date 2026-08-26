@@ -1,4 +1,0 @@
-- id: gomoku-white
-  name: '@darwintree/dsh-theater-gomoku/character'
-  config:
-    color: white

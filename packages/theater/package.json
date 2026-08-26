@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./preset": {
+      "types": "./dist/preset.d.ts",
+      "default": "./dist/preset.js"
     }
   },
   "files": ["dist", "cordis.patch.yml", "README.md"],
@@ -26,6 +30,7 @@
     "@deepseek-ai/dsh-scope": "*",
     "@deepseek-ai/dsh-session": "*",
     "@deepseek-ai/dsh-session-persistence": "*",
+    "@deepseek-ai/dsh-tools": "*",
     "@darwintree/dsh-stage": "*"
   },
   "devDependencies": {

@@ -1,9 +1,17 @@
-- id: assembly
-  name: '../../plugins/configurable-assembly.js'
+- id: stages
+  name: '../../../../../stage/dist/preset.js'
   config:
-    boardSize: 3
+    stages:
+      board1:
+        machine: gomoku
+        params: { boardSize: 3, winLength: 3 }
+- id: performance
+  name: '../../../../dist/preset.js'
+  config:
     characters:
-      - id: black
-        agentPreset: gomoku-black
-      - id: white
-        agentPreset: gomoku-white
+      black:
+        tools:
+          - factory: gomoku-place-stone
+            params: { stage: board1, color: black }
+- id: director
+  name: '../../plugins/complete-director.js'

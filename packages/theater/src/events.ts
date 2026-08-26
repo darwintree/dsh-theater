@@ -6,6 +6,7 @@ import {
 import type { TheaterConfigured, TheaterSegmentEnded } from './types.js'
 
 export const THEATER_REQUIRED_EVENT_TYPES = [
+  'theater/character-configured',
   'theater/configured',
   'theater/segment-started',
   'theater/segment-ended',

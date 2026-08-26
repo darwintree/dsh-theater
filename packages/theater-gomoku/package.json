@@ -14,13 +14,13 @@
       "types": "./dist/single-agent.d.ts",
       "default": "./dist/single-agent.js"
     },
-    "./character": {
-      "types": "./dist/character.d.ts",
-      "default": "./dist/character.js"
+    "./director": {
+      "types": "./dist/director.d.ts",
+      "default": "./dist/director.js"
     },
-    "./two-character": {
-      "types": "./dist/two-character.d.ts",
-      "default": "./dist/two-character.js"
+    "./theater": {
+      "types": "./dist/theater.d.ts",
+      "default": "./dist/theater.js"
     }
   },
   "files": ["dist", "preset", "presets", "cordis.patch.yml", "README.md"],

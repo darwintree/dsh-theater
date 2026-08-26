@@ -4,6 +4,7 @@ import {
   NamedEntries,
   ScopedLayers,
   scopeOf,
+  type ScopeKey,
   type ScopeLayer,
 } from '@deepseek-ai/dsh-scope'
 import type { StateMachineFactory } from './machine.js'
@@ -117,8 +118,10 @@ export class StageCatalog {
   }
 
   resolve(ctx: Context, stageId: string): ResolvedStageDeclaration | undefined {
-    return this.declarationLayers
-      .merge(scopeOf(ctx), layer => layer.declarations)
-      .get(stageId)
+    return this.resolveAll(scopeOf(ctx)).get(stageId)
+  }
+
+  resolveAll(scope: ScopeKey | undefined): ReadonlyMap<string, ResolvedStageDeclaration> {
+    return this.declarationLayers.merge(scope, layer => layer.declarations)
   }
 }

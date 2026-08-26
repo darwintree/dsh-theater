@@ -25,7 +25,7 @@ The durable root and public entry point of one Performance branch. It is not dri
 _Avoid_: Shared transcript, Agent Session
 
 **Character Session**:
-The Agent-backed Session containing one Character's own history within a Performance branch. Its Agent Preset assignment is fixed with the Performance roster. It has no independent preset switch or fork operation; a Performance Fork derives the required Character Sessions together.
+The Agent-backed Session containing one Character's own history within a Performance branch. Its bare Agent receives the Tool list assembled by the Performance. It has no independent preset or fork operation; a Performance Fork derives the required Character Sessions together.
 _Avoid_: Performance Session, Shared transcript
 
 **Character Segment**:

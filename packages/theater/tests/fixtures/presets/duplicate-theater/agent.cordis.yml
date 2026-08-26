@@ -1,14 +1,20 @@
-- id: first-assembly
-  name: '../../../../../theater-gomoku/dist/two-character.js'
+- id: stages
+  name: '../../../../../stage/dist/preset.js'
   config:
-    blackPreset: gomoku-black
-    whitePreset: gomoku-white
-    boardSize: 3
-    winLength: 3
-- id: second-assembly
-  name: '../../../../../theater-gomoku/dist/two-character.js'
+    stages:
+      board1:
+        machine: gomoku
+- id: performance
+  name: '../../../../dist/preset.js'
   config:
-    blackPreset: gomoku-black
-    whitePreset: gomoku-white
-    boardSize: 3
-    winLength: 3
+    characters:
+      black:
+        tools:
+          - factory: gomoku-place-stone
+            params: { stage: board1, color: black }
+- id: first-director
+  name: '../../../../../theater-gomoku/dist/director.js'
+  config: { stage: board1 }
+- id: second-director
+  name: '../../../../../theater-gomoku/dist/director.js'
+  config: { stage: board1 }

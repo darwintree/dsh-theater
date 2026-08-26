@@ -1,4 +1,14 @@
-- id: character-only
-  name: '../../../../../theater-gomoku/dist/character.js'
+- id: stages
+  name: '../../../../../stage/dist/preset.js'
   config:
-    color: black
+    stages:
+      board1:
+        machine: gomoku
+- id: performance
+  name: '../../../../dist/preset.js'
+  config:
+    characters:
+      black:
+        tools:
+          - factory: gomoku-place-stone
+            params: { stage: board1, color: black }

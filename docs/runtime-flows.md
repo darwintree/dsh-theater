@@ -34,24 +34,26 @@ The Agent Session owns both the Stage and the Agent transcript in this mode.
 
 ## Theater Performance
 
-> **Status: pending adjustment.** The flow below records the current
-> implementation and is not yet an accepted target design.
-
 Two-Character Gomoku creates a Performance Session through Theater:
 
 ```text
 DSH starts
   -> loads @darwintree/dsh-stage and creates ctx.stages
   -> loads @darwintree/dsh-theater and creates ctx.theater
-  -> loads @darwintree/dsh-theater-gomoku and registers gomokuFactory
+  -> loads @darwintree/dsh-theater-gomoku
+     -> registers gomokuFactory in ctx.stages
+     -> registers Gomoku Character Tool factories in ctx.theater
   -> first resolves the two-character-gomoku preset
-     -> its plugin contributes black and white Characters
-     -> contributes the board1 Stage backed by gomokuFactory
-     -> contributes the Gomoku Director
+     -> @darwintree/dsh-stage/preset declares board1
+     -> @darwintree/dsh-theater/preset declares black and white and each
+        Character's complete Tool creation plan
+     -> the Gomoku Director plugin contributes the single Director
   -> ctx.theater.create({ performanceId, presetId: 'two-character-gomoku' })
      -> creates the Performance Session
      -> creates board1 and writes stage/configured to the Performance Session
-     -> creates black and white Character Sessions and mounts their presets
+     -> materializes fresh Performance-bound Tools for black and white
+     -> creates bare black and white Character Agents and registers each exact
+        Tool list in its Agent scope
      -> writes theater/configured and starts the Theater Main Loop
   -> Director reads board1 and selects the Character whose color moves next
   -> Theater writes theater/segment-started and injects the instruction

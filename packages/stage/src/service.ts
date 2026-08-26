@@ -5,8 +5,10 @@ import {
   type Session,
   type SessionEvent,
 } from '@deepseek-ai/dsh-session'
+import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import {
   StageCatalog,
+  type ResolvedStageDeclaration,
   type StageDeclarations,
 } from './catalog.js'
 import {
@@ -91,6 +93,11 @@ export class StageService extends Service {
   /** Resolve and register a preset's Stage declarations in its standing scope. */
   declare(declarations: StageDeclarations): () => void {
     return this.catalog.declare(this.ctx, declarations)
+  }
+
+  /** Resolve all Stage declarations visible from one preset standing scope. */
+  resolveDeclarations(scope: ScopeKey): ReadonlyMap<string, ResolvedStageDeclaration> {
+    return this.catalog.resolveAll(scope)
   }
 
   /**

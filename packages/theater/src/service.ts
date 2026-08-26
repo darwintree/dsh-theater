@@ -7,6 +7,8 @@ import type {} from '@deepseek-ai/dsh-agent-presets'
 import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import {
   SessionId,
+  snapshotJsonValue,
+  type JsonValue,
   type Session,
   type SessionEvent,
   type SessionId as SessionIdType,
@@ -21,13 +23,13 @@ import {
   type ScopeKey,
   type ScopeLayer,
 } from '@deepseek-ai/dsh-scope'
+import type { StateMachineFactory } from '@darwintree/dsh-stage'
 import {
   characterSessionId,
   compatible,
   failure,
   nonEmpty,
   resolvedConfiguration,
-  selectedAgentPreset,
 } from './configuration.js'
 import { analyze, registerTheaterSessionEventTypes, settlement } from './events.js'
 import type {
@@ -38,20 +40,29 @@ import type {
   PerformanceRuntimeStatus,
   ResumePerformanceInput,
   TheaterCharacterContribution,
+  TheaterConfiguredCharacter,
   TheaterConfigured,
   TheaterSegmentEnded,
-  TheaterStageContribution,
+  TheaterToolFactory,
 } from './types.js'
 
 interface ContributionLayer extends ScopeLayer {
   readonly characters: AnonymousEntries<TheaterCharacterContribution>
-  readonly stages: AnonymousEntries<TheaterStageContribution>
   readonly directors: AnonymousEntries<Director>
 }
 
+interface ResolvedCharacter {
+  readonly id: string
+  readonly tools: readonly { readonly factory: TheaterToolFactory; readonly config: JsonValue }[]
+}
+
 interface TheaterContributions {
-  readonly characters: readonly TheaterCharacterContribution[]
-  readonly stages: readonly TheaterStageContribution[]
+  readonly characters: readonly ResolvedCharacter[]
+  readonly stages: readonly {
+    readonly stageId: string
+    readonly factory: StateMachineFactory
+    readonly config: JsonValue
+  }[]
   readonly director: Director
 }
 
@@ -69,19 +80,19 @@ interface PerformanceRuntime {
 
 /** `ctx.theater`: preset-composed Performance creation, driving, reading, resume, and fork. */
 export class TheaterService extends Service {
-  static inject = ['sessions', 'agents', 'agentPresets', 'agentDefaultModel', 'stages']
+  static inject = ['sessions', 'agents', 'agentPresets', 'agentDefaultModel', 'stages', 'tools']
 
   private readonly layers = new ScopedLayers<ContributionLayer>(
     () => ({
       characters: new AnonymousEntries<TheaterCharacterContribution>(),
-      stages: new AnonymousEntries<TheaterStageContribution>(),
       directors: new AnonymousEntries<Director>(),
       isEmpty() {
-        return this.characters.isEmpty() && this.stages.isEmpty() && this.directors.isEmpty()
+        return this.characters.isEmpty() && this.directors.isEmpty()
       },
     }),
     () => undefined,
   )
+  private readonly toolFactories = new Map<string, TheaterToolFactory>()
   private readonly live = new Map<SessionIdType, PerformanceRuntime>()
 
   constructor(ctx: Context) {
@@ -93,8 +104,20 @@ export class TheaterService extends Service {
     return this.registerContribution(character, layer => layer.characters, 'registerCharacter')
   }
 
-  registerStage(stage: TheaterStageContribution): () => void {
-    return this.registerContribution(stage, layer => layer.stages, 'registerStage')
+  registerToolFactory(factory: TheaterToolFactory): () => void {
+    const kind = nonEmpty(factory.kind, 'Theater Tool factory kind')
+    if (scopeOf(this.ctx) !== undefined) {
+      throw new Error('theater.registerToolFactory() requires the host scope')
+    }
+    return this.ctx.effect(() => {
+      if (this.toolFactories.has(kind)) {
+        throw new Error(`duplicate Theater Tool factory kind ${JSON.stringify(kind)}`)
+      }
+      this.toolFactories.set(kind, factory)
+      return () => {
+        if (this.toolFactories.get(kind) === factory) this.toolFactories.delete(kind)
+      }
+    }, `theater.registerToolFactory(${kind})`)
   }
 
   registerDirector(director: Director): () => void {
@@ -373,9 +396,29 @@ export class TheaterService extends Service {
     if (directors.length !== 1) {
       throw new Error(`Agent Preset ${JSON.stringify(presetId)} must contribute exactly one Theater Director; found ${directors.length}`)
     }
+    const registeredCharacters = layer === undefined ? [] : [...layer.characters.values()]
+    const characters = registeredCharacters.map((character) => ({
+      id: character.id,
+      tools: character.tools.map((declaration) => {
+        const kind = nonEmpty(declaration.factory, `Tool factory for Character ${JSON.stringify(character.id)}`)
+        const factory = this.toolFactories.get(kind)
+        if (factory === undefined) {
+          throw new Error(`no Theater Tool factory registered for kind ${JSON.stringify(kind)}`)
+        }
+        const config = snapshotJsonValue(factory.resolveConfig(declaration.params ?? {}))
+        if (config === undefined) {
+          throw new Error(`Theater Tool factory ${JSON.stringify(kind)} returned non-JSON configuration`)
+        }
+        return { factory, config }
+      }),
+    }))
+    const stages = [...this.ctx.stages.resolveDeclarations(key)].map(([stageId, declaration]) => ({
+      stageId,
+      ...declaration,
+    }))
     return {
-      characters: layer === undefined ? [] : [...layer.characters.values()],
-      stages: layer === undefined ? [] : [...layer.stages.values()],
+      characters,
+      stages,
       director: directors[0]!,
     }
   }
@@ -386,7 +429,7 @@ export class TheaterService extends Service {
     for (const stage of contributions.stages) {
       await runtime.scope.ctx.stages.ensure(runtime.session, stage.stageId, {
         factory: stage.factory,
-        config: stage.config ?? {},
+        config: stage.config,
       })
       runtime.liveStages.add(stage.stageId)
     }
@@ -409,7 +452,7 @@ export class TheaterService extends Service {
   private async createCharacters(
     runtime: PerformanceRuntime,
     seeds: readonly {
-      character: TheaterCharacterContribution
+      character: TheaterConfiguredCharacter
       parent: Session
       watermark: number
       seed: readonly SessionEvent[]
@@ -419,27 +462,19 @@ export class TheaterService extends Service {
     for (const character of runtime.configured.characters) {
       const seed = byId.get(character.id)
       const meta = seed === undefined
-        ? { agentPreset: character.agentPreset }
+        ? undefined
         : {
             parentSession: seed.parent.id,
             seedLength: seed.watermark,
-            agentPreset: character.agentPreset,
           }
       const handle = await runtime.scope.ctx.agents.create({
         sessionId: characterSessionId(runtime.session.id, character.id),
         ...seed === undefined ? {} : { seed: seed.seed },
-        meta,
+        ...meta === undefined ? {} : { meta },
         agentOptions: runtime.scope.ctx.agentDefaultModel.currentSelection(),
-        setup: async agentCtx => void await runtime.scope.ctx.agentPresets.mount(agentCtx, character.agentPreset),
+        setup: agentCtx => this.setupCharacter(runtime, character.id, agentCtx),
       })
-      const selected = selectedAgentPreset(handle.agent.session)
-      if (selected !== undefined && selected !== character.agentPreset) {
-        await handle.dispose()
-        throw new Error(`Character ${JSON.stringify(character.id)} seed selected a different Agent Preset`)
-      }
-      if (selected === undefined) {
-        handle.agent.session.append('agent-preset/selected', { agentPreset: character.agentPreset })
-      }
+      this.ensureCharacterMarker(handle.agent.session, character.id)
       runtime.characters.set(character.id, handle.agent)
     }
   }
@@ -449,15 +484,44 @@ export class TheaterService extends Service {
       const handle = await runtime.scope.ctx.agents.resume({
         resumeSessionId: characterSessionId(runtime.session.id, character.id),
         agentOptions: runtime.scope.ctx.agentDefaultModel.currentSelection(),
-        setup: async agentCtx => void await runtime.scope.ctx.agentPresets.mount(agentCtx, character.agentPreset),
+        setup: agentCtx => this.setupCharacter(runtime, character.id, agentCtx),
       })
-      const selected = selectedAgentPreset(handle.agent.session)
-      if (handle.agent.session.header.agentPreset !== character.agentPreset
-        || selected !== character.agentPreset) {
+      const marker = handle.agent.session.events.find(event => event.type === 'theater/character-configured')
+      if (marker?.type !== 'theater/character-configured' || marker.data.characterId !== character.id) {
         await handle.dispose()
-        throw new Error(`Character ${JSON.stringify(character.id)} persisted a different Agent Preset`)
+        throw new Error(`Character ${JSON.stringify(character.id)} is missing its durable Theater configuration`)
       }
       runtime.characters.set(character.id, handle.agent)
+    }
+  }
+
+  private setupCharacter(runtime: PerformanceRuntime, characterId: string, agentCtx: Context): void {
+    const contributions = runtime.contributions
+    if (contributions === undefined) throw new Error('cannot compose Character without Theater contributions')
+    const character = contributions.characters.find(candidate => candidate.id === characterId)
+    if (character === undefined) throw new Error(`missing current Character contribution ${JSON.stringify(characterId)}`)
+    const stages = new Map(contributions.stages.map(stage => [stage.stageId, stage]))
+    const resolveStage = (stageId: string) => {
+      if (!stages.has(stageId)) throw new Error(`Stage ${JSON.stringify(stageId)} is not declared by this Performance preset`)
+      return {
+        read: () => runtime.scope.ctx.stages.read(runtime.session, stageId),
+        interact: (op: unknown) => runtime.scope.ctx.stages.interact(runtime.session, stageId, op),
+      }
+    }
+    agentCtx.tools.restrict({ allow: [] })
+    for (const tool of character.tools) {
+      agentCtx.tools.register(tool.factory.create(tool.config, resolveStage))
+    }
+  }
+
+  private ensureCharacterMarker(session: Session, characterId: string): void {
+    const marker = session.events.find(event => event.type === 'theater/character-configured')
+    if (marker === undefined) {
+      session.append('theater/character-configured', { characterId })
+      return
+    }
+    if (marker.data.characterId !== characterId) {
+      throw new Error(`Character ${JSON.stringify(characterId)} seed has incompatible Theater configuration`)
     }
   }
 

@@ -2,6 +2,7 @@
 
 export type { JsonValue } from '@deepseek-ai/dsh-session'
 export type {
+  ResolvedStageDeclaration,
   StageDeclaration,
   StageDeclarations,
 } from './catalog.js'

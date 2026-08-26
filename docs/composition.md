@@ -90,11 +90,47 @@ Preset resolution
   -> the Stage Op is written to the Stage's owning Session
 ```
 
-### Theater follow-up
+## Performance composition
 
-The same composition rule applies to Theater, but its target and owner scopes
-differ: a Character sees the Toolset while the Stage may be owned by the
-Performance Session. Theater still needs an explicit mechanism that carries a
-preset-owned Stage binding into the target Character scope. Hard-coding the
-Stage ID in a Character Tool or repeating it independently in every Character
-preset does not satisfy this composition model.
+A Performance preset is the single composition root for its Stages, each
+Character's complete Tool list, and its Director:
+
+```yaml
+- id: stages
+  name: '@darwintree/dsh-stage/preset'
+  config:
+    stages:
+      board1:
+        machine: gomoku
+
+- id: performance
+  name: '@darwintree/dsh-theater/preset'
+  config:
+    characters:
+      black:
+        tools:
+          - factory: gomoku-read-board
+            params: { stage: board1 }
+          - factory: gomoku-place-stone
+            params: { stage: board1, color: black }
+      white:
+        tools:
+          - factory: gomoku-place-stone
+            params: { stage: board1, color: white }
+
+- id: director
+  name: '@darwintree/dsh-theater-gomoku/director'
+  config:
+    stage: board1
+```
+
+Stage and Tool factory providers register process capabilities at host startup.
+The preset stores only creation plans. For each Performance runtime, Theater
+opens the declared Stages in the Performance Session, materializes fresh Tools
+bound to those Stages, and registers the exact list in each bare Character
+Agent scope. A Tool receives a bound Stage handle; it does not know the
+Performance, Character, owner Session, or Session ID convention.
+
+This keeps two Performances isolated even when they use the same preset and
+Stage IDs. Resume and fork rematerialize Tools against the target Performance
+Session. Character Sessions do not mount separate Agent Presets.

@@ -21,5 +21,11 @@ export {
   GOMOKU_VERSION,
 } from './state.js'
 export { createGomokuTool } from './tool.js'
+export {
+  GOMOKU_PLACE_STONE_TOOL,
+  GOMOKU_READ_BOARD_TOOL,
+  gomokuPlaceStoneToolFactory,
+  gomokuReadBoardToolFactory,
+} from './character.js'
 export type { GomokuConfig, GomokuOp, GomokuState, StoneColor } from './types.js'
 export type { PlaceStoneValue } from './tool.js'

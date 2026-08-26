@@ -1,16 +1,46 @@
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue, SessionId } from '@deepseek-ai/dsh-session'
-import type { StageConfigured, StateMachineFactory } from '@darwintree/dsh-stage'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import type { InteractionResult, StageConfigured } from '@darwintree/dsh-stage'
+
+export interface TheaterToolDeclaration {
+  readonly factory: string
+  readonly params?: unknown
+}
 
 export interface TheaterCharacterContribution {
   readonly id: string
-  readonly agentPreset: string
+  readonly tools: readonly TheaterToolDeclaration[]
 }
 
-export interface TheaterStageContribution {
-  readonly stageId: string
-  readonly factory: StateMachineFactory
-  readonly config?: unknown
+/** One Performance-bound Stage capability handed to an ordinary Tool. */
+export interface TheaterStageHandle {
+  read(): JsonValue
+  interact(op: unknown): Promise<InteractionResult>
+}
+
+/** Host-registered constructor for one preset-declared Character Tool. */
+export interface TheaterToolFactory {
+  readonly kind: string
+  resolveConfig(input: unknown): JsonValue
+  create(
+    config: JsonValue,
+    stage: (stageId: string) => TheaterStageHandle,
+  ): ToolDefinition
+}
+
+export interface TheaterConfiguredTool {
+  readonly factory: string
+  readonly config: JsonValue
+}
+
+export interface TheaterConfiguredCharacter {
+  readonly id: string
+  readonly tools: readonly TheaterConfiguredTool[]
+}
+
+export interface TheaterCharacterConfigured {
+  readonly characterId: string
 }
 
 /** One Character action selected by a Director and executed by the Theater Main Loop. */
@@ -35,7 +65,7 @@ export type Director = (context: DirectorContext) => Promise<DirectorDecision>
 
 export interface TheaterConfigured {
   readonly presetId: string
-  readonly characters: readonly TheaterCharacterContribution[]
+  readonly characters: readonly TheaterConfiguredCharacter[]
   readonly stages: readonly StageConfigured[]
 }
 
@@ -52,6 +82,7 @@ export interface TheaterSegmentEnded {
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
+    'theater/character-configured': TheaterCharacterConfigured
     'theater/configured': TheaterConfigured
     'theater/segment-started': TheaterSegmentStarted
     'theater/segment-ended': TheaterSegmentEnded
