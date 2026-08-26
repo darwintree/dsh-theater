@@ -3,7 +3,6 @@ import type {} from '@darwintree/dsh-theater'
 import { gomokuFactory } from './machine.js'
 import { formatGomokuCoordinate } from './state.js'
 import type { GomokuState } from './types.js'
-import { GOMOKU_STAGE_ID } from './character.js'
 
 export interface Config {
   blackPreset: string
@@ -11,6 +10,8 @@ export interface Config {
   boardSize?: number
   winLength?: number
 }
+
+export const THEATER_BOARD_STAGE_ID = 'board1'
 
 function required(value: string, label: string): string {
   if (typeof value !== 'string' || value.trim() === '') throw new Error(`${label} must be non-empty`)
@@ -25,7 +26,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.theater.registerCharacter({ id: 'black', agentPreset: required(config.blackPreset, 'blackPreset') })
   ctx.theater.registerCharacter({ id: 'white', agentPreset: required(config.whitePreset, 'whitePreset') })
   ctx.theater.registerStage({
-    stageId: GOMOKU_STAGE_ID,
+    stageId: THEATER_BOARD_STAGE_ID,
     factory: gomokuFactory,
     config: {
       ...config.boardSize === undefined ? {} : { boardSize: config.boardSize },
@@ -33,7 +34,7 @@ export function apply(ctx: Context, config: Config): void {
     },
   })
   ctx.theater.registerDirector(async (context) => {
-    const state = context.readStage(GOMOKU_STAGE_ID) as unknown as GomokuState
+    const state = context.readStage(THEATER_BOARD_STAGE_ID) as unknown as GomokuState
     if (state.isFinished) return { kind: 'complete' }
     const previous = state.lastMove === undefined
       ? 'none; this is the opening move'

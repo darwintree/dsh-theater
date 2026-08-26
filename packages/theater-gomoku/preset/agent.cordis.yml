@@ -1,3 +1,16 @@
+- id: stages
+  name: '@darwintree/dsh-stage/preset'
+  config:
+    stages:
+      board1:
+        machine: gomoku
+        params:
+          boardSize: 15
+          winLength: 5
+- id: gomoku-tools
+  name: '@darwintree/dsh-theater-gomoku/single-agent'
+  config:
+    stage: board1
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:

@@ -1,6 +1,11 @@
+import { dirname, join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
+import Include from '@deepseek-ai/cordis-plugin-include'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import AgentPresets from '@deepseek-ai/dsh-agent-presets'
 import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -10,9 +15,14 @@ import StageService from '@darwintree/dsh-stage'
 import * as MockLlm from '@darwintree/dsh-llm-mock'
 import * as Gomoku from '../src/index.ts'
 
+const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+
 describe('Gomoku agent integration', () => {
   it('records the user black move, then the agent white move in a later step, and replies naturally', async () => {
     const ctx = new Context()
+    ctx.baseUrl = pathToFileURL(PACKAGE_ROOT).href + '/'
+    await ctx.plugin(Loader)
+    ctx.loader.builtins.include = Include
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
     await ctx.plugin(StageService)
@@ -20,6 +30,11 @@ describe('Gomoku agent integration', () => {
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(AgentPresets, {
+      default: 'preset',
+      roots: [{ path: PACKAGE_ROOT, trust: 'system' }],
+      includeUserRoot: false,
+    })
     await ctx.plugin(MockLlm, {
       provider: 'mock',
       model: 'scripted',
@@ -44,11 +59,15 @@ describe('Gomoku agent integration', () => {
       ],
     })
     await ctx.plugin(Gomoku)
+    expect(ctx.tools.schemas().map(tool => tool.name)).not.toContain('place_stone')
 
-    const agent = ctx.agentLoop.create(
-      SessionId('gomoku-agent'),
-      { provider: 'mock', model: 'scripted' },
-    )
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('gomoku-agent'),
+      agentOptions: { provider: 'mock', model: 'scripted' },
+      setup: async agentCtx => void await ctx.agentPresets.mount(agentCtx, 'preset'),
+    })
+    const agent = handle.agent
+    expect(ctx.tools.schemas(agent).map(tool => tool.name)).toContain('place_stone')
     agent.followup(createUserMessage({
       content: [{ type: 'text', text: 'I place my black stone at H8.' }],
       source: { kind: 'user' },
@@ -70,7 +89,7 @@ describe('Gomoku agent integration', () => {
 
     // the loop continued across both tool results (no concludeTurn) and reached idle
     expect(agent.status).toBe('idle')
-    expect(ctx.stages.completed(agent.session, 'gomoku-agent-stage')).toBe(false)
-    expect((ctx.stages.read(agent.session, 'gomoku-agent-stage') as { moveNumber: number }).moveNumber).toBe(2)
+    expect(ctx.stages.completed(agent.session, 'board1')).toBe(false)
+    expect((ctx.stages.read(agent.session, 'board1') as { moveNumber: number }).moveNumber).toBe(2)
   })
 });

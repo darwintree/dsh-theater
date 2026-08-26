@@ -3,9 +3,8 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { gomokuFactory } from './machine.js'
 import { renderGomokuBoard } from './state.js'
+import { THEATER_BOARD_STAGE_ID } from './two-character.js'
 import type { GomokuState, StoneColor } from './types.js'
-
-export const GOMOKU_STAGE_ID = 'gomoku'
 
 export interface Config {
   color: StoneColor
@@ -94,8 +93,8 @@ export function apply(ctx: Context, config: Config): void {
     async execute(_args, exec) {
       if (exec.agent === undefined) throw new Error('read_board requires a calling Character')
       const session = owner(String(exec.agent.session.id))
-      await ctx.stages.ensure(session, GOMOKU_STAGE_ID, { factory: gomokuFactory })
-      return boardValue(ctx.stages.read(session, GOMOKU_STAGE_ID) as unknown as GomokuState)
+      await ctx.stages.ensure(session, THEATER_BOARD_STAGE_ID, { factory: gomokuFactory })
+      return boardValue(ctx.stages.read(session, THEATER_BOARD_STAGE_ID) as unknown as GomokuState)
     },
   }))
   ctx.tools.register(defineTool({
@@ -126,14 +125,14 @@ export function apply(ctx: Context, config: Config): void {
     async execute(args, exec) {
       if (exec.agent === undefined) throw new Error('place_stone requires a calling Character')
       const session = owner(String(exec.agent.session.id))
-      await ctx.stages.ensure(session, GOMOKU_STAGE_ID, { factory: gomokuFactory })
-      const result = await ctx.stages.interact(session, GOMOKU_STAGE_ID, {
+      await ctx.stages.ensure(session, THEATER_BOARD_STAGE_ID, { factory: gomokuFactory })
+      const result = await ctx.stages.interact(session, THEATER_BOARD_STAGE_ID, {
         type: 'place-stone',
         color: boundColor,
         x: args.x,
         y: args.y,
       })
-      const state = ctx.stages.read(session, GOMOKU_STAGE_ID) as unknown as GomokuState
+      const state = ctx.stages.read(session, THEATER_BOARD_STAGE_ID) as unknown as GomokuState
       const value: MoveValue = result.kind === 'domain-rejected'
         ? { accepted: false, color: boundColor, reason: result.reason, ...boardValue(state) }
         : { accepted: true, color: boundColor, x: args.x, y: args.y, ...boardValue(state) }

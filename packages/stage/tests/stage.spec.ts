@@ -1,4 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
+import { createScope } from '@deepseek-ai/dsh-scope'
 import { SessionId, type JsonValue } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
 import StageService, {
@@ -10,6 +11,7 @@ import StageService, {
   type StateMachine,
   type StateMachineFactory,
 } from '../src/index.ts'
+import * as StagePreset from '../src/preset.ts'
 
 interface CounterConfig { initial: number; target: number }
 interface CounterState { value: number; target: number }
@@ -84,6 +86,56 @@ async function setup() {
 }
 
 describe('Stage Service', () => {
+  it('resolves multiple preset-declared Stages through an Agent scope', async () => {
+    const ctx = await setup()
+    let resolutions = 0
+    ctx.stages.registerFactory({
+      ...applyingFactory,
+      resolveConfig(input) {
+        resolutions += 1
+        return applyingFactory.resolveConfig(input)
+      },
+    })
+    const presetKey = {}
+    const preset = createScope(ctx, presetKey)
+    await preset.ctx.plugin(StagePreset, {
+      stages: {
+        first: { machine: 'counter', params: { initial: 1, target: 3 } },
+        second: { machine: 'counter', params: { initial: 10, target: 20 } },
+      },
+    })
+    const agent = createScope(ctx, {}, { parent: presetKey })
+    const session = ctx.sessions.create(SessionId('declared-stages'))
+
+    await ctx.stages.ensureDeclared(agent.ctx, session, 'first')
+    await ctx.stages.ensureDeclared(agent.ctx, session, 'second')
+
+    expect(resolutions).toBe(2)
+    expect(ctx.stages.read(session, 'first')).toMatchObject({ value: 1, target: 3 })
+    expect(ctx.stages.read(session, 'second')).toMatchObject({ value: 10, target: 20 })
+    expect(session.events.filter(event => event.type === 'stage/configured')).toMatchObject([
+      { data: { stageId: 'first', machine: 'counter', config: { initial: 1, target: 3 } } },
+      { data: { stageId: 'second', machine: 'counter', config: { initial: 10, target: 20 } } },
+    ])
+  })
+
+  it('rejects a preset atomically when a Stage factory is missing', async () => {
+    const ctx = await setup()
+    ctx.stages.registerFactory(applyingFactory)
+    const presetKey = {}
+    const preset = createScope(ctx, presetKey)
+    await expect(preset.ctx.plugin(StagePreset, {
+      stages: {
+        valid: { machine: 'counter' },
+        invalid: { machine: 'missing' },
+      },
+    })).rejects.toThrow('no State Machine factory registered for kind "missing"')
+    const agent = createScope(ctx, {}, { parent: presetKey })
+    const session = ctx.sessions.create(SessionId('invalid-declarations'))
+    await expect(ctx.stages.ensureDeclared(agent.ctx, session, 'valid'))
+      .rejects.toThrow('not declared')
+  })
+
   it('persists configuration and flushes before ensure resolves', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('stage-create'))

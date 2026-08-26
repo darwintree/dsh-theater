@@ -152,7 +152,7 @@ describe('Performance Theater', () => {
 
     const performance = ctx.theater.read(performanceId)
     expect(performance.status).toBe('completed')
-    expect(performance.stages.gomoku).toMatchObject({
+    expect(performance.stages.board1).toMatchObject({
       state: { moveNumber: 5, winner: 'black', isFinished: true },
     })
     expect(performance.characters).toEqual({
@@ -272,11 +272,11 @@ describe('Performance Theater', () => {
       ctx.theater.whenIdle(divergentId),
     ])
     const divergent = ctx.theater.read(divergentId)
-    expect(divergent.stages.gomoku?.state).toMatchObject({
+    expect(divergent.stages.board1?.state).toMatchObject({
       winner: 'black',
       lastMove: { x: 2, y: 2 },
     })
-    expect(source.stages.gomoku?.state).toMatchObject({ lastMove: { x: 2, y: 0 } })
+    expect(source.stages.board1?.state).toMatchObject({ lastMove: { x: 2, y: 0 } })
   })
 
   it('keeps an illegal move in the same Segment and reconsiders a normal no-move Segment from unchanged Stage state', async () => {
@@ -315,7 +315,7 @@ describe('Performance Theater', () => {
     const black = ctx.sessions.get(characterSessionId(performanceId, 'black'))!
     const results = black.events.filter(event => event.type === 'tool/result')
     expect(results.some(event => JSON.stringify(event.data).includes('coordinate is outside the board'))).toBe(true)
-    expect(performance.stages.gomoku?.state).toMatchObject({ winner: 'black', moveNumber: 5 })
+    expect(performance.stages.board1?.state).toMatchObject({ winner: 'black', moveNumber: 5 })
   })
 
   it('durably ends a failed Segment, stops the Theater Main Loop, and recovers from a fork', async () => {
@@ -343,7 +343,7 @@ describe('Performance Theater', () => {
       data: { characterId: 'black', outcome: 'error' },
     })
     expect(failed.forkablePositions.at(-1)).toBe(session.events.length)
-    expect(failed.stages.gomoku?.state).toMatchObject({ moveNumber: 0 })
+    expect(failed.stages.board1?.state).toMatchObject({ moveNumber: 0 })
 
     const childId = SessionId('performance-recovered')
     await ctx.theater.fork({
@@ -354,7 +354,7 @@ describe('Performance Theater', () => {
     await ctx.theater.whenIdle(childId)
     expect(ctx.theater.read(childId)).toMatchObject({
       status: 'completed',
-      stages: { gomoku: { state: { winner: 'black', moveNumber: 5 } } },
+      stages: { board1: { state: { winner: 'black', moveNumber: 5 } } },
     })
   })
 
@@ -384,7 +384,7 @@ describe('Performance Theater', () => {
       const resumed = reader.theater.read(performanceId)
       expect(resumed).toMatchObject({
         status: 'completed',
-        stages: { gomoku: { state: { winner: 'black', moveNumber: 5 } } },
+        stages: { board1: { state: { winner: 'black', moveNumber: 5 } } },
       })
       const performance = reader.sessions.get(performanceId)!
       expect(performance.events.filter(event => event.type === 'theater/segment-ended')[0]).toMatchObject({
@@ -458,7 +458,7 @@ describe('Performance Theater', () => {
           black: characterSessionId(performanceId, 'black'),
           white: characterSessionId(performanceId, 'white'),
         })
-        expect(historical.stages.gomoku?.state, scenario.name).toMatchObject({ moveNumber: 0 })
+        expect(historical.stages.board1?.state, scenario.name).toMatchObject({ moveNumber: 0 })
         await expect(reader.theater.whenIdle(performanceId)).rejects.toThrow('incompatible')
         await reader.fiber.dispose()
       } finally {
@@ -487,7 +487,7 @@ describe('Performance Theater', () => {
     await ctx.theater.whenIdle(completedId)
     expect(ctx.theater.read(completedId)).toMatchObject({
       status: 'completed',
-      stages: { gomoku: { completed: false, state: { isFinished: false } } },
+      stages: { board1: { completed: false, state: { isFinished: false } } },
     })
     expect(ctx.sessions.get(completedId)?.events.some(event =>
       event.type === 'theater/segment-started')).toBe(false)
@@ -508,11 +508,11 @@ describe('Performance Theater', () => {
     await ctx.theater.create({ performanceId: secondId, presetId: 'two-character-gomoku' })
     await ctx.theater.whenIdle(secondId)
 
-    expect(ctx.theater.read(firstId).stages.gomoku?.state).toMatchObject({
+    expect(ctx.theater.read(firstId).stages.board1?.state).toMatchObject({
       lastMove: { x: 2, y: 0 },
       winner: 'black',
     })
-    expect(ctx.theater.read(secondId).stages.gomoku?.state).toMatchObject({
+    expect(ctx.theater.read(secondId).stages.board1?.state).toMatchObject({
       lastMove: { x: 0, y: 2 },
       winner: 'black',
     })

@@ -1,9 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { StateMachineFactory } from '@darwintree/dsh-stage'
-import type { GomokuConfig, GomokuState } from './types.js'
+import type { GomokuState } from './types.js'
 import { GOMOKU_KIND, formatGomokuCoordinate, renderGomokuBoard } from './state.js'
-import { gomokuFactory } from './machine.js'
 
 export interface PlaceStoneValue {
   accepted: boolean
@@ -34,33 +32,19 @@ function renderResult(value: PlaceStoneValue): string {
   return [head, '', value.board, '', tail].join('\n')
 }
 
-export interface GomokuToolOptions {
-  /**
-   * First-use config input. Defaults to the 15×15 board and win length 5 when
-   * omitted; ignored once a Stage is already configured for the Session.
-   */
-  config?: unknown
-  /**
-   * Override the State Machine factory. Defaults to the bundled Gomoku
-   * factory; supplied for tests that swap in alternative rules.
-   */
-  factory?: StateMachineFactory
-}
-
 /**
- * The global Gomoku `place_stone` tool. It derives a temporary Stage ID of
- * `${sessionId}-stage` from the calling Agent Session, lazily ensures or
- * restores the Gomoku Stage, applies one canonical place-stone Op, and renders
- * the complete updated board, winner, and completion state. The user plays
- * black and the Agent plays white; the Agent calls the tool once for the
- * user's directed black move and again for its own chosen white move before
- * replying. The tool does not call `concludeTurn()`.
+ * The Gomoku `place_stone` tool. It resolves its preset-bound Stage from the
+ * calling Agent's scope, lazily ensures or restores it in the Agent Session,
+ * applies one canonical place-stone Op, and renders the
+ * complete updated board, winner, and completion state. The user plays black
+ * and the Agent plays white; the Agent calls the tool once for the user's
+ * directed black move and again for its own chosen white move before replying.
+ * The tool does not call `concludeTurn()`.
  *
  * The registration context supplies `ctx.stages`; the calling Agent Session
- * supplies the Stage ID and is the authority for persistence.
+ * supplies the Stage declaration and is the authority for persistence.
  */
-export function createGomokuTool(ctx: Context, options: GomokuToolOptions = {}) {
-  const factory = options.factory ?? gomokuFactory
+export function createGomokuTool(ctx: Context, stageId: string) {
   return defineTool({
     name: 'place_stone',
     description:
@@ -100,12 +84,7 @@ export function createGomokuTool(ctx: Context, options: GomokuToolOptions = {}) 
       if (agent === undefined) {
         throw new Error('place_stone requires a calling agent')
       }
-      const sessionId = agent.session.id
-      const stageId = `${sessionId}-stage`
-      await ctx.stages.ensure(agent.session, stageId, {
-        factory,
-        config: options.config ?? {},
-      })
+      await ctx.stages.ensureDeclared(agent.ctx, agent.session, stageId)
       const result = await ctx.stages.interact(agent.session, stageId, {
         type: 'place-stone',
         color: args.color,
@@ -130,4 +109,3 @@ export function createGomokuTool(ctx: Context, options: GomokuToolOptions = {}) 
 }
 
 export { GOMOKU_KIND }
-export type { GomokuConfig }

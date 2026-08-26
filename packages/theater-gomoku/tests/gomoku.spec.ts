@@ -7,7 +7,9 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
 import StageService from '@darwintree/dsh-stage'
+import * as StagePreset from '@darwintree/dsh-stage/preset'
 import * as Gomoku from '../src/index.ts'
+import * as SingleAgent from '../src/single-agent.ts'
 
 async function setup() {
   const ctx = new Context()
@@ -27,25 +29,29 @@ async function setupWithAgent() {
   return ctx
 }
 
+async function createGomokuAgent(ctx: Context, id: string) {
+  const handle = await ctx.agents.create({
+    sessionId: SessionId(id),
+    agentOptions: { provider: 'mock', model: 'scripted' },
+    setup: async (agentCtx) => {
+      await agentCtx.plugin(SingleAgent, { stage: 'test-board' })
+      await agentCtx.plugin(StagePreset, {
+        stages: { 'test-board': { machine: 'gomoku', params: { boardSize: 15, winLength: 5 } } },
+      })
+    },
+  })
+  return handle.agent
+}
+
 describe('Gomoku tool', () => {
-  it('fails clearly when executed without an agent', async () => {
+  it('is not exposed globally', async () => {
     const ctx = await setup()
-    const result = await ctx.tools.execute({
-      callId: CallId('no-agent'),
-      name: 'place_stone',
-      arguments: { color: 'black', x: 7, y: 7 },
-      signal: new AbortController().signal,
-    })
-    expect(result.isError).toBe(true)
-    expect(result.content[0]).toMatchObject({ type: 'text', text: /requires a calling agent/ })
+    expect(ctx.tools.schemas().map(tool => tool.name)).not.toContain('place_stone')
   })
 
-  it('derives a session-scoped Stage ID, records the user black move, then the agent white move, and renders the full board', async () => {
+  it('uses the preset-declared Stage, records both moves, and renders the full board', async () => {
     const ctx = await setupWithAgent()
-    const agent = ctx.agentLoop.create(
-      SessionId('gomoku-tool'),
-      { provider: 'mock', model: 'scripted' },
-    )
+    const agent = await createGomokuAgent(ctx, 'gomoku-tool')
 
     const black = await ctx.tools.execute({
       callId: CallId('black-1'),
@@ -54,15 +60,14 @@ describe('Gomoku tool', () => {
       signal: new AbortController().signal,
       agent,
     })
-    expect(black.isError).toBe(false)
+    expect(black.isError, JSON.stringify(black.content)).toBe(false)
     const blackValue = black.value as Gomoku.PlaceStoneValue
     expect(blackValue.accepted).toBe(true)
     expect(blackValue.currentPlayer).toBe('white')
     expect(blackValue.moveNumber).toBe(1)
     expect(blackValue.isFinished).toBe(false)
-    // temporary Stage ID isolated in the tool: ${sessionId}-stage
     expect(agent.session.events.filter(e => e.type === 'stage/configured')[0]?.data)
-      .toMatchObject({ stageId: 'gomoku-tool-stage', machine: 'gomoku', version: '1' })
+      .toMatchObject({ stageId: 'test-board', machine: 'gomoku', version: '1' })
 
     const white = await ctx.tools.execute({
       callId: CallId('white-1'),
@@ -85,7 +90,7 @@ describe('Gomoku tool', () => {
 
   it('returns a domain rejection as a normal tool result without persisting', async () => {
     const ctx = await setupWithAgent()
-    const agent = ctx.agentLoop.create(SessionId('gomoku-reject'), { provider: 'mock', model: 'scripted' })
+    const agent = await createGomokuAgent(ctx, 'gomoku-reject')
 
     await ctx.tools.execute({
       callId: CallId('r1'),
@@ -110,7 +115,7 @@ describe('Gomoku tool', () => {
 
   it('does not conclude the turn on an accepted move', async () => {
     const ctx = await setupWithAgent()
-    const agent = ctx.agentLoop.create(SessionId('gomoku-noconclude'), { provider: 'mock', model: 'scripted' })
+    const agent = await createGomokuAgent(ctx, 'gomoku-noconclude')
     const result = await ctx.tools.execute({
       callId: CallId('nc1'),
       name: 'place_stone',

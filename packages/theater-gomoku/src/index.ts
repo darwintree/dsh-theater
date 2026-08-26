@@ -1,12 +1,12 @@
 import type { Context } from '@deepseek-ai/cordis'
 import StageService from '@darwintree/dsh-stage'
-import { createGomokuTool } from './tool.js'
+import { gomokuFactory } from './machine.js'
 
 export const name = '@darwintree/dsh-theater-gomoku'
-export const inject = ['stages', 'tools']
+export const inject = ['stages']
 
 export function apply(ctx: Context): void {
-  ctx.tools.register(createGomokuTool(ctx))
+  ctx.stages.registerFactory(gomokuFactory)
 }
 
 export { StageService }
@@ -22,4 +22,4 @@ export {
 } from './state.js'
 export { createGomokuTool } from './tool.js'
 export type { GomokuConfig, GomokuOp, GomokuState, StoneColor } from './types.js'
-export type { GomokuToolOptions, PlaceStoneValue } from './tool.js'
+export type { PlaceStoneValue } from './tool.js'
