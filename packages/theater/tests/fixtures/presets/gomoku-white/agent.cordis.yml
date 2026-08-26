@@ -1,0 +1,4 @@
+- id: gomoku-white
+  name: '../../../../../theater-gomoku/dist/character.js'
+  config:
+    color: white

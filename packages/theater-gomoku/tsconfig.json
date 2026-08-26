@@ -5,5 +5,9 @@
     "outDir": "dist",
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
+  "references": [
+    { "path": "../stage" },
+    { "path": "../theater" }
+  ],
   "include": ["src"]
 }

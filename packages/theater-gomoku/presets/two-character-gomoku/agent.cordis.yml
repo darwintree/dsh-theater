@@ -1,0 +1,5 @@
+- id: theater-gomoku
+  name: '@darwintree/dsh-theater-gomoku/two-character'
+  config:
+    blackPreset: gomoku-black
+    whitePreset: gomoku-white

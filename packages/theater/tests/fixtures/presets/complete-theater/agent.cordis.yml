@@ -1,0 +1,9 @@
+- id: assembly
+  name: '../../plugins/configurable-assembly.js'
+  config:
+    boardSize: 3
+    characters:
+      - id: black
+        agentPreset: gomoku-black
+      - id: white
+        agentPreset: gomoku-white

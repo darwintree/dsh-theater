@@ -91,26 +91,48 @@ describe('Stage Service', () => {
     const flush = new Promise<void>(r => { released = r })
     ctx.on('session/flush', () => flush)
     let resolved = false
-    const pending = ctx.stages.ensure('s', { session, factory: counterFactory, config: { initial: 1, target: 3 } })
+    const pending = ctx.stages.ensure(session, 's', { factory: counterFactory, config: { initial: 1, target: 3 } })
       .then(() => { resolved = true })
     await Promise.resolve()
     expect(resolved).toBe(false)
     expect(session.events).toMatchObject([{ type: 'stage/configured', data: { stageId: 's', machine: 'counter', version: '1', config: { initial: 1, target: 3 } } }])
     released()
     await pending
-    expect(ctx.stages.read('s')).toMatchObject({ value: 1, target: 3 })
-    expect(ctx.stages.completed('s')).toBe(false)
+    expect(ctx.stages.read(session, 's')).toMatchObject({ value: 1, target: 3 })
+    expect(ctx.stages.completed(session, 's')).toBe(false)
   })
 
   it('ensures idempotently and rejects a conflicting second configuration', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('stage-unique'))
-    await ctx.stages.ensure('u', { session, factory: counterFactory, config: { initial: 2, target: 4 } })
-    await ctx.stages.ensure('u', { session, factory: counterFactory, config: { initial: 2, target: 4 } })
+    await ctx.stages.ensure(session, 'u', { factory: counterFactory, config: { initial: 2, target: 4 } })
+    await ctx.stages.ensure(session, 'u', { factory: counterFactory, config: { initial: 2, target: 4 } })
     expect(session.events.filter(e => e.type === 'stage/configured')).toHaveLength(1)
-    await expect(ctx.stages.ensure('u', { session, factory: counterFactory, config: { initial: 9, target: 9 } }))
+    await expect(ctx.stages.ensure(session, 'u', { factory: counterFactory, config: { initial: 9, target: 9 } }))
       .resolves.toBe(undefined)
     expect(session.events.filter(e => e.type === 'stage/configured')).toHaveLength(1)
+  })
+
+  it('routes the same Stage ID independently for each owning Session', async () => {
+    const ctx = await setup()
+    const first = ctx.sessions.create(SessionId('stage-owner-first'))
+    const second = ctx.sessions.create(SessionId('stage-owner-second'))
+
+    await ctx.stages.ensure(first, 'shared', {
+      factory: applyingFactory,
+      config: { initial: 0, target: 3 },
+    })
+    await ctx.stages.ensure(second, 'shared', {
+      factory: applyingFactory,
+      config: { initial: 10, target: 20 },
+    })
+    await ctx.stages.interact(first, 'shared', { kind: 'add', amount: 1 })
+    await ctx.stages.interact(second, 'shared', { kind: 'add', amount: 2 })
+
+    expect(ctx.stages.read(first, 'shared')).toMatchObject({ value: 1, target: 3 })
+    expect(ctx.stages.read(second, 'shared')).toMatchObject({ value: 12, target: 20 })
+    expect(first.events.filter(event => event.type === 'stage/op')).toHaveLength(1)
+    expect(second.events.filter(event => event.type === 'stage/op')).toHaveLength(1)
   })
 
   it('accepts an interaction, flushes before success, and rejects domain rejections without persisting', async () => {
@@ -118,15 +140,15 @@ describe('Stage Service', () => {
     const session = ctx.sessions.create(SessionId('stage-interact'))
     let flushes = 0
     ctx.on('session/flush', () => { flushes += 1 })
-    await ctx.stages.ensure('i', { session, factory: applyingFactory, config: { initial: 0, target: 3 } })
+    await ctx.stages.ensure(session, 'i', { factory: applyingFactory, config: { initial: 0, target: 3 } })
 
-    const accepted = await ctx.stages.interact('i', { kind: 'add', amount: 2 })
+    const accepted = await ctx.stages.interact(session, 'i', { kind: 'add', amount: 2 })
     expect(accepted).toEqual({ kind: 'accepted' })
-    expect(ctx.stages.read('i')).toMatchObject({ value: 2, target: 3 })
+    expect(ctx.stages.read(session, 'i')).toMatchObject({ value: 2, target: 3 })
 
-    const rejected = await ctx.stages.interact('i', { kind: 'reject', reason: 'not now' })
+    const rejected = await ctx.stages.interact(session, 'i', { kind: 'reject', reason: 'not now' })
     expect(rejected).toEqual({ kind: 'domain-rejected', reason: 'not now' })
-    expect(ctx.stages.read('i')).toMatchObject({ value: 2, target: 3 })
+    expect(ctx.stages.read(session, 'i')).toMatchObject({ value: 2, target: 3 })
 
     const ops = session.events.filter(e => e.type === 'stage/op')
     expect(ops).toHaveLength(1)
@@ -138,55 +160,55 @@ describe('Stage Service', () => {
   it('rejects a flush failure without promising rollback of advanced live state', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('stage-flush-fail'))
-    await ctx.stages.ensure('f', { session, factory: applyingFactory, config: { initial: 0, target: 3 } })
+    await ctx.stages.ensure(session, 'f', { factory: applyingFactory, config: { initial: 0, target: 3 } })
     ctx.on('session/flush', () => { throw new Error('durability unknown') })
-    await expect(ctx.stages.interact('f', { kind: 'add', amount: 1 })).rejects.toThrow('durability unknown')
-    expect(ctx.stages.read('f')).toMatchObject({ value: 1, target: 3 })
+    await expect(ctx.stages.interact(session, 'f', { kind: 'add', amount: 1 })).rejects.toThrow('durability unknown')
+    expect(ctx.stages.read(session, 'f')).toMatchObject({ value: 1, target: 3 })
     expect(session.events.filter(e => e.type === 'stage/op')).toHaveLength(1)
   })
 
   it('throws on a program fault without persisting a Stage Op', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('stage-throw'))
-    await ctx.stages.ensure('t', { session, factory: applyingFactory, config: { initial: 0, target: 3 } })
-    await expect(ctx.stages.interact('t', { kind: 'throw', message: 'boom' })).rejects.toThrow('boom')
+    await ctx.stages.ensure(session, 't', { factory: applyingFactory, config: { initial: 0, target: 3 } })
+    await expect(ctx.stages.interact(session, 't', { kind: 'throw', message: 'boom' })).rejects.toThrow('boom')
     expect(session.events.filter(e => e.type === 'stage/op')).toHaveLength(0)
-    expect(ctx.stages.read('t')).toMatchObject({ value: 0, target: 3 })
+    expect(ctx.stages.read(session, 't')).toMatchObject({ value: 0, target: 3 })
   })
 
   it('returns a detached read that cannot mutate live state', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('stage-read'))
-    await ctx.stages.ensure('r', { session, factory: applyingFactory, config: { initial: 0, target: 1 } })
-    await ctx.stages.interact('r', { kind: 'add', amount: 1 })
-    const snapshot = ctx.stages.read('r') as { value: number }
+    await ctx.stages.ensure(session, 'r', { factory: applyingFactory, config: { initial: 0, target: 1 } })
+    await ctx.stages.interact(session, 'r', { kind: 'add', amount: 1 })
+    const snapshot = ctx.stages.read(session, 'r') as { value: number }
     snapshot.value = 999
-    expect((ctx.stages.read('r') as { value: number }).value).toBe(1)
+    expect((ctx.stages.read(session, 'r') as { value: number }).value).toBe(1)
   })
 
   it('reports completion from the live State Machine', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('stage-completed'))
-    await ctx.stages.ensure('c', { session, factory: applyingFactory, config: { initial: 0, target: 2 } })
-    expect(ctx.stages.completed('c')).toBe(false)
-    await ctx.stages.interact('c', { kind: 'add', amount: 2 })
-    expect(ctx.stages.completed('c')).toBe(true)
+    await ctx.stages.ensure(session, 'c', { factory: applyingFactory, config: { initial: 0, target: 2 } })
+    expect(ctx.stages.completed(session, 'c')).toBe(false)
+    await ctx.stages.interact(session, 'c', { kind: 'add', amount: 2 })
+    expect(ctx.stages.completed(session, 'c')).toBe(true)
   })
 
   it('reconstructs the same State Machine by replaying persisted accepted ops in order', async () => {
     const liveCtx = await setup()
     const live = liveCtx.sessions.create(SessionId('stage-replay'))
-    await liveCtx.stages.ensure('rp', { session: live, factory: applyingFactory, config: { initial: 1, target: 5 } })
-    await liveCtx.stages.interact('rp', { kind: 'add', amount: 2 })
-    await liveCtx.stages.interact('rp', { kind: 'reject', reason: 'no' })
-    await liveCtx.stages.interact('rp', { kind: 'add', amount: 2 })
+    await liveCtx.stages.ensure(live, 'rp', { factory: applyingFactory, config: { initial: 1, target: 5 } })
+    await liveCtx.stages.interact(live, 'rp', { kind: 'add', amount: 2 })
+    await liveCtx.stages.interact(live, 'rp', { kind: 'reject', reason: 'no' })
+    await liveCtx.stages.interact(live, 'rp', { kind: 'add', amount: 2 })
 
     // cold resume: a fresh process + fresh session seeded with the persisted events.
     const coldCtx = await setup()
     const cold = coldCtx.sessions.create(SessionId('stage-replay'), { seed: live.events })
-    await coldCtx.stages.ensure('rp', { session: cold, factory: applyingFactory })
-    expect(coldCtx.stages.read('rp')).toMatchObject({ value: 5, target: 5 })
-    expect(coldCtx.stages.completed('rp')).toBe(true)
+    await coldCtx.stages.ensure(cold, 'rp', { factory: applyingFactory })
+    expect(coldCtx.stages.read(cold, 'rp')).toMatchObject({ value: 5, target: 5 })
+    expect(coldCtx.stages.completed(cold, 'rp')).toBe(true)
     // rejected request did not become a Stage Op
     expect(cold.events.filter(e => e.type === 'stage/op')).toHaveLength(2)
   })
@@ -210,8 +232,8 @@ describe('Stage Service', () => {
     // re-register through a real Service to confirm append works end-to-end
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('stage-routing'))
-    await ctx.stages.ensure('rt', { session, factory: applyingFactory, config: { initial: 0, target: 1 } })
-    await ctx.stages.interact('rt', { kind: 'add', amount: 1 })
+    await ctx.stages.ensure(session, 'rt', { factory: applyingFactory, config: { initial: 0, target: 1 } })
+    await ctx.stages.interact(session, 'rt', { kind: 'add', amount: 1 })
     session.append('turn/start', { turn: 1 })
     const routed = stageEvents(session.events, 'rt')
     expect(routed).toHaveLength(2)
@@ -222,16 +244,17 @@ describe('Stage Service', () => {
   it('fails to interact with a Stage that was never ensured', async () => {
     const ctx = await setup()
     ctx.sessions.create(SessionId('stage-missing'))
-    expect(() => ctx.stages.read('missing')).toThrow('not live')
-    expect(() => ctx.stages.completed('missing')).toThrow('not live')
-    await expect(ctx.stages.interact('missing', { kind: 'add', amount: 1 })).rejects.toThrow('not live')
+    const session = ctx.sessions.get(SessionId('stage-missing'))!
+    expect(() => ctx.stages.read(session, 'missing')).toThrow('not live')
+    expect(() => ctx.stages.completed(session, 'missing')).toThrow('not live')
+    await expect(ctx.stages.interact(session, 'missing', { kind: 'add', amount: 1 })).rejects.toThrow('not live')
   })
 
   it('retains the optional observational outcome in the persisted Stage Op', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('stage-outcome'))
-    await ctx.stages.ensure('o', { session, factory: counterFactory, config: { initial: 0, target: 3 } })
-    const accepted = await ctx.stages.interact('o', { kind: 'add', amount: 1 })
+    await ctx.stages.ensure(session, 'o', { factory: counterFactory, config: { initial: 0, target: 3 } })
+    const accepted = await ctx.stages.interact(session, 'o', { kind: 'add', amount: 1 })
     expect(accepted).toEqual({ kind: 'accepted', outcome: { value: 1 } })
     const op = session.events.filter(e => e.type === 'stage/op')[0]
     expect(op?.data).toMatchObject({ stageId: 'o', op: { kind: 'add', amount: 1 }, outcome: { value: 1 } })

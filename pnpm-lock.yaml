@@ -44,21 +44,45 @@ importers:
       '@darwintree/dsh-llm-mock':
         specifier: workspace:*
         version: link:../llm-mock
+      '@darwintree/dsh-stage':
+        specifier: workspace:*
+        version: link:../stage
       '@deepseek-ai/cordis':
         specifier: link:../../../deepseek-harness/vendor/cordis
         version: link:../../../deepseek-harness/vendor/cordis
+      '@deepseek-ai/cordis-plugin-include':
+        specifier: link:../../../deepseek-harness/vendor/include
+        version: link:../../../deepseek-harness/vendor/include
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: link:../../../deepseek-harness/vendor/loader
+        version: link:../../../deepseek-harness/vendor/loader
       '@deepseek-ai/dsh-agent':
         specifier: link:../../../deepseek-harness/packages/core/agent
         version: link:../../../deepseek-harness/packages/core/agent
+      '@deepseek-ai/dsh-agent-default-model':
+        specifier: link:../../../deepseek-harness/packages/core/agent-default-model
+        version: link:../../../deepseek-harness/packages/core/agent-default-model
       '@deepseek-ai/dsh-agent-loop':
         specifier: link:../../../deepseek-harness/packages/core/agent-loop
         version: link:../../../deepseek-harness/packages/core/agent-loop
+      '@deepseek-ai/dsh-agent-presets':
+        specifier: link:../../../deepseek-harness/packages/preset/agent-presets
+        version: link:../../../deepseek-harness/packages/preset/agent-presets
       '@deepseek-ai/dsh-llm':
         specifier: link:../../../deepseek-harness/packages/llm/llm
         version: link:../../../deepseek-harness/packages/llm/llm
+      '@deepseek-ai/dsh-scope':
+        specifier: link:../../../deepseek-harness/packages/core/scope
+        version: link:../../../deepseek-harness/packages/core/scope
       '@deepseek-ai/dsh-session':
         specifier: link:../../../deepseek-harness/packages/core/session
         version: link:../../../deepseek-harness/packages/core/session
+      '@deepseek-ai/dsh-session-persistence':
+        specifier: link:../../../deepseek-harness/packages/session/session-persistence
+        version: link:../../../deepseek-harness/packages/session/session-persistence
+      '@deepseek-ai/dsh-session-persistence-jsonl':
+        specifier: link:../../../deepseek-harness/packages/session/session-persistence-jsonl
+        version: link:../../../deepseek-harness/packages/session/session-persistence-jsonl
       '@deepseek-ai/dsh-system-prompt':
         specifier: link:../../../deepseek-harness/packages/core/system-prompt
         version: link:../../../deepseek-harness/packages/core/system-prompt
@@ -74,6 +98,9 @@ importers:
       '@darwintree/dsh-stage':
         specifier: workspace:*
         version: link:../stage
+      '@darwintree/dsh-theater':
+        specifier: workspace:*
+        version: link:../theater
       '@deepseek-ai/cordis':
         specifier: link:../../../deepseek-harness/vendor/cordis
         version: link:../../../deepseek-harness/vendor/cordis

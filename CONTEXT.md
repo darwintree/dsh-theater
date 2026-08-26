@@ -5,7 +5,7 @@ Theater provides durable game stages in which an Agent can act under game-specif
 ## Language
 
 **Theater**:
-The composition layer that assembles a Performance, its Director, Characters, Sessions, and Stages and manages their durable boundaries. Domain-specific action order and completion remain the responsibility of the Director and Stages.
+The composition layer that assembles a Performance, its Director, Characters, Sessions, and Stages, owns the Performance's Main Loop, and manages their durable boundaries. Stages own domain terminal facts; the Director owns Performance completion.
 _Avoid_: Scheduler, game rules engine
 
 **Stage**:
@@ -32,24 +32,28 @@ _Avoid_: Performance Session, Shared transcript
 One Theater-managed invocation interval in which a Character Agent Loop acts within a Performance. It is a durable orchestration boundary, not a public child resource. Segments have no stable identity: their durable start and end facts are paired by strict stack order and Character. A Segment ends only after its Character work and all Theater-managed settlement are durable; no separate end-reaction phase follows it.
 _Avoid_: Character Session, Director invocation
 
+**Theater Main Loop**:
+The long-lived Theater-owned main loop for a Performance. At each Director Point it consumes one Director Decision: executing and settling an action before repeating, or completing the Performance.
+_Avoid_: Theater Driver, Agent Loop, Director
+
 **Director**:
-The long-lived Performance control routine that determines what happens when Character Agent Loops are idle. A live invocation may remain active while awaiting Theater-managed work, while fork and restart create a fresh invocation whose behavior is reconstructed from durable Performance state rather than replayed execution.
-_Avoid_: Agent Loop, Character
+The reentrant liveness decision construct consulted by the Theater Main Loop at a Director Point. It derives one Director Decision from readable durable state without owning the Main Loop, executing Character work, managing durable orchestration boundaries, or retaining control state across decisions.
+_Avoid_: Theater Main Loop, Agent Loop, Character
+
+**Director Decision**:
+One liveness result from the Director: perform one Character action or complete the Performance. Completion is a Performance interpretation of domain facts, not a replacement for a Stage's terminal state.
+_Avoid_: Stage result, Character turn
 
 **Director Point**:
-A durable Performance position at which the Director may begin or resume. It is any Performance Session prefix whose durable Character Segment stack is empty: initially after the Performance, its Characters, and its Stages are created and flushed, and subsequently after settled Character Segments. At every point all Character Agent Loops are idle and their Sessions are flushed.
+A durable Performance position at which the Theater Main Loop may ask the Director for the next action. It is any Performance Session prefix whose durable Character Segment stack is empty: initially after the Performance, its Characters, and its Stages are created and flushed, and subsequently after settled Character Segments. At every point all Character Agent Loops are idle and their Sessions are flushed.
 _Avoid_: Character turn, arbitrary event boundary
-
-**Director Re-entry**:
-A fresh Director invocation begun from a Director Point after fork or restart. It derives its next behavior from durable Performance, Stage, and Character state; Director-local execution state is not retained.
-_Avoid_: Workflow replay, call-stack restoration
 
 **Instruction**:
 Opaque input supplied to a Character for one action and persisted only in that Character's Session. A Performance Session does not copy its content.
 _Avoid_: Character history
 
 **Performance Fork**:
-A new Performance branch derived from a Director Point in another Performance branch, together with the corresponding Character Sessions and a Director continuation from that point. Work performed after the selected point may be repeated; forking is exposed only at the Performance level.
+A new Performance branch derived from a Director Point in another Performance branch, together with the corresponding Character Sessions. The child Theater Main Loop asks the Director for a fresh decision from that point; forking is exposed only at the Performance level.
 _Avoid_: Character Fork, transcript copy
 
 **Gomoku Stage**:

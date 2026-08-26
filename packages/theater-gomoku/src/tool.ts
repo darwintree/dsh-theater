@@ -102,18 +102,17 @@ export function createGomokuTool(ctx: Context, options: GomokuToolOptions = {}) 
       }
       const sessionId = agent.session.id
       const stageId = `${sessionId}-stage`
-      await ctx.stages.ensure(stageId, {
-        session: agent.session,
+      await ctx.stages.ensure(agent.session, stageId, {
         factory,
         config: options.config ?? {},
       })
-      const result = await ctx.stages.interact(stageId, {
+      const result = await ctx.stages.interact(agent.session, stageId, {
         type: 'place-stone',
         color: args.color,
         x: args.x,
         y: args.y,
       })
-      const snapshot = ctx.stages.read(stageId) as unknown as GomokuState
+      const snapshot = ctx.stages.read(agent.session, stageId) as unknown as GomokuState
       const base = {
         board: renderGomokuBoard(snapshot),
         currentPlayer: snapshot.currentPlayer,
@@ -132,4 +131,3 @@ export function createGomokuTool(ctx: Context, options: GomokuToolOptions = {}) 
 
 export { GOMOKU_KIND }
 export type { GomokuConfig }
-

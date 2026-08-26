@@ -24,7 +24,7 @@
 
 问题：Director 是一次性决策函数还是可跨 await 存活的控制任务。
 
-决定：Director 是自动驱动 Performance 的长生命周期控制任务，可以在 Theater 管理的等待点保持调用。
+决定（2026-08-25 校正）：Theater 持有自动驱动 Performance 的长生命周期主循环。Director 是在每个 Director Point 被调用一次的 liveness 决策构件，明确返回 `act` 或 `complete`；它不执行 action、不持有主循环，也不保留跨决策的局部控制状态。原记录把 Theater 主循环的生命周期归给 Director，属于沟通误差。当前没有外部唤醒协议，因此不提供 `idle` Decision。
 
 ## 5. Director 算法
 
@@ -68,17 +68,17 @@
 
 决定：位于 Decision 之前；fork 后由新分支基于该点的 durable state 重新决定下一步。
 
-## 12. Director continuation
+## 12. Theater Main Loop continuation
 
-问题：fork 后如何恢复 Director 的执行位置。
+问题：fork 后如何恢复 Performance 的自动驱动。
 
-决定：采用状态重入；新分支启动新的 Director invocation，从 Director Point 的 Performance、Stage 与 Character durable state 重建下一步，不使用 Workflow Replay 或调用栈恢复。
+决定：新分支从所选 Director Point 启动 Theater Main Loop，并重新调用 Director 产生下一项工作。不存在需要恢复的 Director 执行位置、Workflow Replay 或调用栈。
 
 ## 13. Director Point 后的工作
 
-问题：fork 是否必须保留所选 Director Point 之后的 Director 局部执行。
+问题：fork 是否必须保留所选 Director Point 之后已经计算但尚未执行的 Director Decision。
 
-决定：不保留；点后的少量重新计算或回退属于预期语义。
+决定：不保留；子分支重新调用 Director，少量重新计算属于预期语义。
 
 ## 14. Character 输入
 
@@ -156,13 +156,13 @@
 
 问题：Stage 已结束时，Director 是否需要另行持久化 Performance completion 状态。
 
-决定：不需要；Director 在 Director Point 读取到 Gomoku Stage 已结束后停止派发并正常返回，Stage 是终局状态的唯一来源。
+决定（2026-08-25 校正）：不需要 durable Performance completion Event。Gomoku Stage 仍是棋局终局事实的唯一来源；Director 读取该事实并返回 `complete`，由 Theater Main Loop 将运行状态设为 `completed`。通用 Theater 不通过聚合 Stage completion 推断 Performance completion。
 
 ## 27. 初始 Director Point
 
 问题：首次 Character 行动之前是否存在可 fork 的 Director Point。
 
-决定：存在；Performance Session、Character Sessions 和 Gomoku Stage 创建并 flush 后建立初始 Director Point，再进行第一次 Director Decision。
+决定：存在；Performance Session、Character Sessions 和 Gomoku Stage 创建并 flush 后建立初始 Director Point，再由 Theater Main Loop 请求第一次 Director Decision。
 
 ## 28. 棋盘读取顺序
 
@@ -174,7 +174,7 @@
 
 问题：Character 正常结束 Agent Loop、但未产生合法落子时如何继续。
 
-决定：建立新的 Director Point 并重新判断；因棋盘未改变，Director 再次派发同一个 Character，不增加失败状态或重试计数。
+决定：建立新的 Director Point，Theater Main Loop 再次调用 Director；因棋盘未改变，Director 再次返回同一个 Character 的 action，不增加失败状态或重试计数。
 
 ## 30. Character Session 身份
 
@@ -204,7 +204,7 @@
 
 问题：Character Agent Loop 以 aborted 或 error 结束时，Director 是否自动继续。
 
-决定：Character 与相关 Stage flush 后仍写入并 flush `theater/segment-ended`，形成可 fork 的空栈位置；当前 Director invocation 停止并传播错误，后续 restart 或 fork 可从该位置重新判断。只有 completed Segment 自动进入下一次 Director Decision。
+决定：Character 与相关 Stage flush 后仍写入并 flush `theater/segment-ended`，形成可 fork 的空栈位置；当前 Theater Main Loop 停止并传播错误，后续 restart 或 fork 可从该位置再次调用 Director。只有 completed Segment 自动进入下一次 Director Decision。
 
 ## 35. Character Segment 身份
 
@@ -214,15 +214,15 @@
 
 ## 36. Character Segment 开始顺序
 
-问题：Director 何时向 Character Session 注入 Instruction 并启动 Agent Loop。
+问题：Theater 何时把 Director Decision 中的 Instruction 注入 Character Session 并启动 Agent Loop。
 
-决定：先写入并 flush `theater/segment-started`，再注入 Instruction 并启动 Character Agent Loop；Character Session 开始变化时，Performance 的 durable Character Segment 栈必须已经非空。
+决定：Theater 先写入并 flush `theater/segment-started`，再注入 Instruction 并启动 Character Agent Loop；Character Session 开始变化时，Performance 的 durable Character Segment 栈必须已经非空。
 
 ## 37. Theater 抽象边界
 
 问题：通用 Theater 是否负责领域调度算法。
 
-决定：不负责；Theater 主要组装 Performance、Director、Characters、Sessions 和 Stages，并管理它们的 durable 边界。具体行动顺序与结束条件由领域 Director 和 Stage 决定。
+决定：不负责领域算法；Theater 组装 Performance、Director、Characters、Sessions 和 Stages，持有主循环并管理 durable 边界。具体下一项行动和 Performance completion 由领域 Director 决定，合法性和领域终局事实由 Stage 决定。
 
 ## 38. Performance 产品读取面
 
@@ -264,17 +264,17 @@
 
 问题：standing preset composition 如何向 Theater 提供 Performance 组装能力。
 
-决定：preset 中的 Theater plugin 向当前 standing scope 注册一个无单局可变状态的 Theater assembly contribution。Theater 通过 preset ID 加载该 scope，并要求用于创建 Performance 的 preset 恰好提供一个 contribution；preset mount 本身不创建 Performance。
+决定（2026-08-25 修正）：preset 中的 plugin 可分别向当前 standing scope 贡献 Characters、Stages 或 Director。Theater 通过 preset ID 加载该 scope，汇总所有 Character 与 Stage contributions，并要求恰好存在一个 Director；各类贡献可以来自不同 plugin，当前 Gomoku 恰好由同一个 plugin 同时提供。preset mount 本身不创建 Performance。
 
 ## 45. Preset generation 与旧 Performance
 
 问题：Performance 是否快照或 pin 创建时使用的 preset composition。
 
-决定：不快照也不 pin；cold resume 和 fork 重新加载当前 preset generation。当前 contribution 必须与 durable Character roster、Character preset assignments 和 Stage configuration 兼容，否则拒绝继续驱动，但历史 Performance 仍可读取。兼容的 Director 或 prompt 修改可在下次恢复时生效。
+决定：不快照也不 pin；cold resume 和 fork 重新加载当前 preset generation。当前 contributions 必须与 durable Character roster、Character preset assignments 和 Stage configuration 兼容，否则拒绝继续驱动，但历史 Performance 仍可读取。兼容的 Director 或 prompt 修改可在下次恢复时生效。
 
 ## 46. Theater-capable preset 的部署依赖
 
-问题：包含 Theater contribution 的 preset 是否必须在未部署 Theater 能力时仍可作为普通 Agent preset 运行。
+问题：包含 Theater contributions 的 preset 是否必须在未部署 Theater 能力时仍可作为普通 Agent preset 运行。
 
 决定：不必；该 preset 可以显式依赖 `theater`。部署缺少该能力时，preset composition 整体不可运行，并按现有 Agent Preset health 语义呈现为 broken 或 unavailable；不增加 preset kind 或降级路径。
 
@@ -288,7 +288,7 @@
 
 问题：每个 Character 使用的 Agent Preset 是否可脱离 Performance 独立变化。
 
-决定：不可；Performance 创建时解析出的 Character Agent Preset assignments 是固定 roster 的一部分，Character Session 持久化实际选择，Performance Fork 继承这些 assignments。cold resume 时，当前 Theater assembly contribution 必须提供兼容的 assignments，否则拒绝继续驱动。
+决定：不可；Performance 创建时解析出的 Character Agent Preset assignments 是固定 roster 的一部分，Character Session 持久化实际选择，Performance Fork 继承这些 assignments。cold resume 时，当前 Theater Character contributions 必须提供兼容的 assignments，否则拒绝继续驱动。
 
 ## 49. 产品与架构设计闭合
 

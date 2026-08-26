@@ -1,0 +1,4 @@
+- id: character-only
+  name: '../../../../../theater-gomoku/dist/character.js'
+  config:
+    color: black

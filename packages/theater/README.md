@@ -1,43 +1,36 @@
 # dsh-theater
 
-当前包提供一个用于验证 DeepSeek Harness 插件集成流程的 `greet` 工具。
+`ctx.theater` composes durable multi-Character Performances from existing Agent
+Presets. A Performance Session is the public root and is not driven by an Agent
+Loop. Plugins in its preset independently contribute fixed Characters and their
+Agent Presets, Stages, and exactly one domain-owned Director. Theater combines
+those contributions when it creates, resumes, or forks a Performance.
 
-## 本地集成
+```ts
+await ctx.theater.create({ performanceId, presetId })
+await ctx.theater.whenIdle(performanceId)
 
-以下目录假设 `dsh-theater-new` 与 `deepseek-harness` 位于同一父目录。
-
-先构建插件：
-
-```sh
-cd dsh-theater-new
-pnpm install --frozen-lockfile
-pnpm build
+const performance = ctx.theater.read(performanceId)
+await ctx.theater.fork({
+  sourcePerformanceId: performanceId,
+  cursor: performance.forkablePositions.at(-1),
+  childPerformanceId,
+})
 ```
 
-将本地 checkout 安装进 DeepSeek Harness 的 Web profile：
+Character Agent Loops run in separate deterministically named Sessions. Each
+invocation is enclosed by durable `theater/segment-started` and
+`theater/segment-ended` events in the Performance Session. Only prefixes with
+an empty Segment stack are forkable; each Segment end records the acting
+Character Session's exclusive watermark.
 
-```sh
-cd ../deepseek-harness
-pnpm dsh plugin --profile web add link:../dsh-theater-new/packages/theater
-pnpm dsh web --dump-config
-```
+Theater owns the Performance Main Loop. At each forkable Director Point it
+asks the Director for one decision: `act` or `complete`. It executes and
+settles an action before asking again, or completes the Performance. The
+Director reads durable state and decides Performance completion;
+Stages remain the source of domain terminal facts.
 
-配置输出中出现 `@darwintree/dsh-theater` 后，启动 Web：
-
-```sh
-pnpm dsh web
-```
-
-打开 `http://127.0.0.1:3080`，新建会话并输入：
-
-```text
-Use the greet tool to greet Ada.
-```
-
-模型会调用 `greet`，工具结果为 `Hello, Ada!`。
-
-移除本地插件：
-
-```sh
-pnpm dsh plugin --profile web remove @darwintree/dsh-theater
-```
+Performance reads expose runtime status, Stage state, forkable positions, and
+Character Session references. Character Events and Instructions are not copied
+into a merged transcript. Projection, Character-level fork, parallel Character
+execution, and Workflow replay are not implemented.

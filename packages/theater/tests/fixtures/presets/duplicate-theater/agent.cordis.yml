@@ -1,0 +1,14 @@
+- id: first-assembly
+  name: '../../../../../theater-gomoku/dist/two-character.js'
+  config:
+    blackPreset: gomoku-black
+    whitePreset: gomoku-white
+    boardSize: 3
+    winLength: 3
+- id: second-assembly
+  name: '../../../../../theater-gomoku/dist/two-character.js'
+  config:
+    blackPreset: gomoku-black
+    whitePreset: gomoku-white
+    boardSize: 3
+    winLength: 3

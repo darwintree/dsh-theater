@@ -2,11 +2,15 @@
 # This section is managed by the CLI. Do not edit manually.
 id: "fcdf7978-b950-4bd7-8908-4f8c0d5a1e36"
 title: "Implement Performance Session Theater and two-Character Gomoku"
-status: "open"
+status: "closed"
 labels: ["READY-FOR-AGENT"]
 created_at: "2026-08-24T14:35:00Z"
-updated_at: "2026-08-24T14:41:00Z"
+updated_at: "2026-08-25T03:36:00Z"
 ---
+## Post-closure Director correction (2026-08-25)
+
+The Director lifecycle wording in this issue and its original decision audit is superseded by the corrected [[docs/traces/discussion/2026-08-24-performance-session-director|Performance Session 与 Director 讨论记录]]. Theater owns the long-lived Performance Main Loop. At each Director Point it calls a reentrant Director once; the Director returns `act` or `complete` and does not execute the action or retain control state across decisions. The durable Segment, fork, Stage, and Character Session acceptance results below remain valid.
+
 ## Problem Statement
 
 The rewrite repository currently contains a durable Stage service, the Gomoku State Machine, and a Single-Agent Gomoku demo, but it does not yet contain the Theater abstraction required to run a Performance with multiple independent Character Sessions. The earlier agents-chat loop is too specialized, while the completed dsh-theater demo includes aggregation, Projection, Definition, and reaction machinery that no longer matches the agreed product model.
@@ -140,18 +144,74 @@ Demonstrate the abstraction with a Two-Character Gomoku Performance. The black a
 
 ## Acceptance Criteria
 
-- [ ] A Theater-capable preset supplies exactly one stateless Theater assembly contribution through existing Agent Preset composition.
-- [ ] A Performance can be created, automatically driven, cold-resumed, and forked through the public Theater Service.
-- [ ] Performance Session, fixed Character Sessions, Character Agent Preset assignments, and configured Stages are durable and reconstructable.
-- [ ] Character Segment start/end ordering and flush boundaries make every advertised Director Point safe to fork.
-- [ ] Performance fork derives all Character Sessions at their recorded exclusive watermarks and rejects non-Director-Point cursors.
-- [ ] Stage routing is Session-scoped and accepted Stage Ops are persisted only in the owning Session.
-- [ ] Two-Character Gomoku alternates black and white automatically, supports board reads and color-bound legal/illegal placements, and stops from Stage terminal state.
-- [ ] Single-Agent Gomoku remains a non-Theater direct Stage demo.
-- [ ] Compatible current preset generations resume historical Performances; incompatible composition refuses driving without preventing historical reads.
-- [ ] The accepted global-Stage-ID routing ADR is superseded by the Session-scoped Stage identity decision.
-- [ ] The confirmed public integration seam covers create, drive, failure, resume, fork, and Stage ownership behavior without a new test-only abstraction.
-- [ ] Implementation completion includes a line-by-line audit proving that every decision in the linked 2026-08-24 Performance Session and Director discussion trace is implemented or explicitly identified as out of scope by that trace.
+- [x] A Theater-capable preset supplies exactly one stateless Theater assembly contribution through existing Agent Preset composition.
+- [x] A Performance can be created, automatically driven, cold-resumed, and forked through the public Theater Service.
+- [x] Performance Session, fixed Character Sessions, Character Agent Preset assignments, and configured Stages are durable and reconstructable.
+- [x] Character Segment start/end ordering and flush boundaries make every advertised Director Point safe to fork.
+- [x] Performance fork derives all Character Sessions at their recorded exclusive watermarks and rejects non-Director-Point cursors.
+- [x] Stage routing is Session-scoped and accepted Stage Ops are persisted only in the owning Session.
+- [x] Two-Character Gomoku alternates black and white automatically, supports board reads and color-bound legal/illegal placements, and stops from Stage terminal state.
+- [x] Single-Agent Gomoku remains a non-Theater direct Stage demo.
+- [x] Compatible current preset generations resume historical Performances; incompatible composition refuses driving without preventing historical reads.
+- [x] The accepted global-Stage-ID routing ADR is superseded by the Session-scoped Stage identity decision.
+- [x] The confirmed public integration seam covers create, drive, failure, resume, fork, and Stage ownership behavior without a new test-only abstraction.
+- [x] Implementation completion includes a line-by-line audit proving that every decision in the linked 2026-08-24 Performance Session and Director discussion trace is implemented or explicitly identified as out of scope by that trace.
+
+## Discussion Decision Audit
+
+Evidence below is against [[docs/traces/discussion/2026-08-24-performance-session-director]]. The primary behavioral evidence is `packages/theater/tests/performance.integration.spec.ts`; focused Stage and direct-Gomoku evidence remains in `packages/stage/tests/stage.spec.ts` and `packages/theater-gomoku/tests/agent.spec.ts`.
+
+| # | Result | Implementation evidence |
+|---:|---|---|
+| 1 | Implemented | `TheaterService.create()` creates an ordinary Performance Session; only derived Character IDs are passed to `ctx.agents.create()`. The integration test also proves the Performance header has no `agentPreset`. |
+| 2 | Implemented | The preset-owned `TheaterAssembly.director()` decides what to do after each awaited Character action; Theater does not claim unique scheduling authority. |
+| 3 | Out of scope as decided | No Character-to-Character invocation API is added; the Director contract does not state that only Director may ever invoke a Character. |
+| 4 | Implemented | `TheaterService.start()` automatically owns one long-lived async Director invocation and `whenIdle()` observes its settlement. |
+| 5 | Implemented | `two-character.ts` owns the Gomoku loop and reads the durable board's `currentPlayer`; Theater contains no Gomoku scheduling rule. |
+| 6 | Implemented | `theater/configured` durably fixes the ordered Character roster; create/resume/fork all reconstruct from it. |
+| 7 | Implemented | Public fork exists only as `TheaterService.fork()`; Character seeds are an internal part of that operation. |
+| 8 | Implemented | Performance Events contain Segment boundaries and Stage Events, never copied Character Events; the integration test asserts no Performance user/assistant/tool Events. |
+| 9 | Implemented | Every `theater/segment-ended` writes the flushed exclusive `characterSessionSeq`; `analyze()` takes the latest per Character and defaults to `0`. |
+| 10 | Implemented | `analyze()` reconstructs the durable Segment stack and advertises/rejects cursors strictly by empty-stack prefixes. |
+| 11 | Implemented | Fork selects the prefix before a new Director invocation; the child immediately re-enters the current Director from inherited durable state. |
+| 12 | Implemented | Fork and cold resume call a fresh `assembly.director()`; no Workflow or execution-stack API is imported. |
+| 13 | Implemented | Performance fork seeds only the selected prefix; Director-local work after it is absent and recomputed. |
+| 14 | Out of scope as decided | No Projection type, registry, persistence, or injection path exists; `DirectorContext.act()` accepts only opaque Instruction blocks. |
+| 15 | Implemented | `StageService` keys live State Machines by owning `Session` plus `stageId`; ADR 0002 records the replacement. |
+| 16 | Implemented | Character tools resolve the Performance owner before `ctx.stages.interact()`; the existing Stage API equally accepts a Character Session owner. |
+| 17 | Implemented | Character histories contain tool call/results but no `stage/op`; no Stage Event is projected into model input. |
+| 18 | Implemented | Existing `createGomokuTool()` and direct Agent test remain; Theater adds separate `character.ts` tools and `two-character.ts` orchestration over the unchanged machine. |
+| 19 | Implemented to the decided boundary | Theater adds no general concurrency contract. Gomoku calls one action at a time, and its tools do not opt into DSH parallel-safe execution. |
+| 20 | Out of scope as decided | Two-Character Gomoku has no Performance User Input or waiting protocol. |
+| 21 | Implemented | Gomoku Instruction includes previous action, bound color, and both tool names; `read_board` renders the complete authoritative board. |
+| 22 | Implemented | Black/white Character presets configure a color-bound `place_stone(x, y)`; color is absent from model arguments. |
+| 23 | Implemented | Accepted placements call `ToolRunContext.concludeTurn()`; domain rejections return normally without concluding. The retry integration case proves both. |
+| 24 | Implemented | `read_board` is a native Character tool read; Stage Op counts prove reads create no `stage/op`. |
+| 25 | Implemented | The roster IDs are exactly `black` and `white`; no mapping layer exists. |
+| 26 | Implemented | The Gomoku Director returns when `state.isFinished`; runtime completion is derived and no Performance completion Event is written. |
+| 27 | Implemented | Stages and Character Sessions are created/flushed before `theater/configured`; that configured prefix is the first advertised forkable position. |
+| 28 | Implemented | Theater does not track or validate a read-before-place flag; Instruction requests it and Stage validates the move. |
+| 29 | Implemented | A completed no-move Segment ends normally; the unchanged board makes the domain Director dispatch the same color again, with no counter/state. |
+| 30 | Implemented | `characterSessionId()` deterministically derives IDs from Performance Session ID and Character ID; no durable mapping is stored. |
+| 31 | Implemented | `act()` flushes Character and owning Performance/Stage work before appending and flushing the final `theater/segment-ended`; no end-reaction phase exists. |
+| 32 | Implemented | Same evidence as decision 9; initial fork tests additionally prove watermark `0`. |
+| 33 | Implemented | `ForkPerformanceInput.cursor` is exclusive; Theater slices `events.slice(0, cursor)` and validates the resulting stack before creating a child. |
+| 34 | Implemented | Error/abort Turn reasons produce and flush an abnormal Segment end, stop `start()`'s current Director invocation, and remain forkable; the failure/fork test proves re-entry. |
+| 35 | Implemented | Segment Events contain only Character/outcome/watermark data; no Segment ID exists, and pairing is LIFO plus Character validation. |
+| 36 | Implemented | `act()` appends and awaits the Segment-start flush before constructing/following up the Character Instruction; checkpoint assertions cover the ordering. |
+| 37 | Implemented | Theater owns assembly/durable boundaries; the Gomoku Director and unchanged State Machine own action order and game rules. |
+| 38 | Implemented | `PerformanceRead` exposes Stage state, runtime status, forkable positions, lineage, and Character Session references—no merged transcript. |
+| 39 | Implemented | No Segment service/resource/ID or public Segment operation exists. |
+| 40 | Implemented | `TheaterStageAssembly` uses the existing Stage factory/API; no Character-owned Stage declaration abstraction is introduced. |
+| 41 | Implemented | Instruction is created only in `act()` and reaches only `character.followup()`; Performance stores only the Segment boundary. |
+| 42 | Implemented | Composition resolution uses `AgentPresets.standingKeyFor(presetId)` and a scoped assembly contribution; no Definition/registry/preset-kind surface exists. |
+| 43 | Implemented | Performance preset ID is in `theater/configured`, not the Session header; Character headers plus native `agent-preset/selected` persist their actual presets. |
+| 44 | Implemented | `registerAssembly()` requires a standing scope and `resolveAssembly()` requires exactly one; tests cover zero, one, and two contributions. Preset mounting creates no Performance. |
+| 45 | Implemented | Resume/fork re-resolve the current standing generation and compare durable roster, assignments, and Stage config; compatible cold resume and all three incompatible cases are covered. |
+| 46 | Implemented | The Theater Gomoku preset plugin explicitly injects `theater`; its real preset mount is unavailable without that Service and has no fallback. |
+| 47 | Implemented | Create accepts only Performance Session ID and preset ID; static assembly values come from preset rows and per-Performance state is Session/Stage state. |
+| 48 | Implemented | Assignments are part of durable roster configuration, Character headers/events persist the actual selection, fork inherits them, and resume rejects mismatch. |
+| 49 | Confirmed | Decisions 1–48 are accounted for above; implementation adds no Projection, Definition registry, stable Segment ID, end reaction, merged transcript, or Character fork surface. |
 
 ## Out of Scope
 
@@ -174,4 +234,4 @@ Demonstrate the abstraction with a Two-Character Gomoku Performance. The black a
 
 - Product and architecture decisions are authoritative in [[docs/traces/discussion/2026-08-24-performance-session-director|Performance Session 与 Director 讨论记录]].
 - The repository is the rewrite branch; the sibling completed demo is a reference implementation, not a compatibility target.
-- [[docs/adr/0001-route-durable-state-machines-by-stage-id|ADR 0001]] conflicts with Session-scoped Stage identity and must be superseded as part of this change.
+- [[docs/adr/0001-route-durable-state-machines-by-stage-id|ADR 0001]] is superseded by [[docs/adr/0002-scope-stage-identity-by-owning-session|ADR 0002]].

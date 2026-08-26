@@ -1,6 +1,10 @@
 # dsh-theater-gomoku
 
-A Gomoku game plugin: a pure State Machine plus a global `place_stone` tool.
+A Gomoku State Machine with two modes:
+
+- `preset/` keeps the direct Single-Agent game.
+- `presets/` provides a Theater Performance with independent black and white
+  Character Sessions and one Performance-owned board.
 
 The State Machine owns live board state and the deterministic domain rules
 (integer coordinates, bounds, occupancy, black/white rotation, win and draw
@@ -20,9 +24,14 @@ await ctx.plugin(StageService)   // provides ctx.stages
 await ctx.plugin(GomokuPlugin)   // registers place_stone
 ```
 
-## Web preset
+The Theater Character presets register `read_board` and a color-bound
+`place_stone(x, y)`. Board reads stay in the Character Session without a Stage
+Op. Accepted placements call `concludeTurn()`; rejected placements remain in
+the same Character turn for retry.
 
-`preset/` provides the Gomoku entry for the Harness Web preset picker. The
+## Presets
+
+`preset/` provides the direct Gomoku entry for the Harness Web preset picker. The
 following follows the Harness profile/plugin flow and assumes this repository
 and `deepseek-harness` are siblings.
 
@@ -33,13 +42,13 @@ pnpm install --frozen-lockfile
 pnpm build
 ```
 
-Install both bundles into the Web profile, with Stage first because Gomoku
-injects `ctx.stages`:
+Install the Stage, Theater, and Gomoku bundles:
 
 ```sh
 cd ../deepseek-harness
 pnpm dsh plugin --profile web add \
   link:../dsh-theater-new/packages/stage \
+  link:../dsh-theater-new/packages/theater \
   link:../dsh-theater-new/packages/theater-gomoku
 ```
 
@@ -52,6 +61,9 @@ cd ../dsh-theater-new
 mkdir -p "${DSH_HOME:-$HOME/.dsh}/.agent-presets/gomoku"
 cp packages/theater-gomoku/preset/*.yml \
   "${DSH_HOME:-$HOME/.dsh}/.agent-presets/gomoku/"
+
+cp -R packages/theater-gomoku/presets/* \
+  "${DSH_HOME:-$HOME/.dsh}/.agent-presets/"
 ```
 
 Verify the composed profile, then start Web:
@@ -62,16 +74,18 @@ pnpm dsh web --dump-config
 pnpm dsh web
 ```
 
-Open `http://127.0.0.1:3080` and choose **Gomoku Theater** when creating a
-session.
+Choose **Gomoku Theater** for the direct Agent mode. Two-Character Gomoku is
+created through `ctx.theater` with preset ID `two-character-gomoku`; it does not
+pretend the Performance Session is an Agent conversation.
 
 Remove the local bundles when they are no longer needed:
 
 ```sh
 pnpm dsh plugin --profile web remove \
   @darwintree/dsh-theater-gomoku \
+  @darwintree/dsh-theater \
   @darwintree/dsh-stage
 ```
 
-Out of scope: Dice, a general tool-to-stageId resolver, multi-Agent or
-self-play matches, and multiple Stages per Session.
+Out of scope: user input, Projection, parallel Tool Calls, and independent
+Character forks.

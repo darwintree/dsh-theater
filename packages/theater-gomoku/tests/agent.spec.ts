@@ -70,8 +70,7 @@ describe('Gomoku agent integration', () => {
 
     // the loop continued across both tool results (no concludeTurn) and reached idle
     expect(agent.status).toBe('idle')
-    expect(ctx.stages.completed('gomoku-agent-stage')).toBe(false)
-    expect((ctx.stages.read('gomoku-agent-stage') as { moveNumber: number }).moveNumber).toBe(2)
+    expect(ctx.stages.completed(agent.session, 'gomoku-agent-stage')).toBe(false)
+    expect((ctx.stages.read(agent.session, 'gomoku-agent-stage') as { moveNumber: number }).moveNumber).toBe(2)
   })
 });
-

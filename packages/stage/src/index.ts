@@ -162,8 +162,6 @@ export function registerStageSessionEventTypes(): () => void {
 
 /** Inputs to lazily create or restore one Stage. */
 export interface EnsureStageInput {
-  /** The calling Agent Session — the authority for Stage persistence. */
-  readonly session: Session
   /** Construction capability for the State Machine kind. */
   readonly factory: StateMachineFactory
   /** First-use config input; ignored when the Stage is already configured. */
@@ -177,7 +175,6 @@ export type InteractionResult =
 
 interface LiveStage {
   readonly machine: StateMachine
-  readonly session: Session
 }
 
 function nonEmpty(value: string, label: string): string {
@@ -221,7 +218,7 @@ function replayMachine(
 
 /**
  * `ctx.stages`: one concrete Cordis Service routing canonical Ops to live
- * State Machines by Stage ID. The Service owns Session configuration, accepted
+ * State Machines by owning Session and Stage ID. The Service owns Session configuration, accepted
  * Op persistence, flush, replay, read, and completion; State Machines hold
  * only live state and deterministic domain rules. Stage IDs are independent of
  * State Machine kind and Agent identity.
@@ -229,7 +226,7 @@ function replayMachine(
 export class StageService extends Service {
   static inject = ['sessions']
 
-  private readonly live = new Map<string, LiveStage>()
+  private readonly live = new WeakMap<Session, Map<string, LiveStage>>()
 
   constructor(ctx: Context) {
     super(ctx, 'stages')
@@ -245,18 +242,13 @@ export class StageService extends Service {
    * authoritative after creation; later plugin config changes do not rewrite
    * an existing game.
    */
-  async ensure(stageId: string, input: EnsureStageInput): Promise<void> {
+  async ensure(session: Session, stageId: string, input: EnsureStageInput): Promise<void> {
     nonEmpty(stageId, 'Stage ID')
     nonEmpty(input.factory.kind, 'State Machine kind')
     nonEmpty(input.factory.version, 'State Machine version')
-    const existing = this.live.get(stageId)
-    if (existing !== undefined) {
-      if (existing.session !== input.session) {
-        throw new Error(`Stage ${JSON.stringify(stageId)} is bound to another Session`)
-      }
-      return
-    }
-    const configured = configuredEvent(input.session.events, stageId)
+    const live = this.liveFor(session)
+    if (live.has(stageId)) return
+    const configured = configuredEvent(session.events, stageId)
     if (configured !== undefined) {
       if (configured.data.machine !== input.factory.kind) {
         throw new Error(
@@ -269,12 +261,12 @@ export class StageService extends Service {
         )
       }
       const machine = replayMachine(
-        input.session.events,
+        session.events,
         input.factory,
         stageId,
         configured.data.config,
       )
-      this.live.set(stageId, { machine, session: input.session })
+      live.set(stageId, { machine })
       return
     }
     const config = snapshotJsonValue(input.factory.resolveConfig(input.config ?? {}))
@@ -289,14 +281,14 @@ export class StageService extends Service {
         `State Machine kind/version mismatch for Stage ${JSON.stringify(stageId)}`,
       )
     }
-    input.session.append('stage/configured', {
+    session.append('stage/configured', {
       stageId,
       machine: input.factory.kind,
       version: input.factory.version,
       config,
     })
-    await this.ctx.sessions.flush(input.session)
-    this.live.set(stageId, { machine, session: input.session })
+    await this.ctx.sessions.flush(session)
+    live.set(stageId, { machine })
   }
 
   /**
@@ -307,8 +299,8 @@ export class StageService extends Service {
    * promising rollback of already advanced live state. Domain rejections
    * return a reason and are not persisted; program faults throw.
    */
-  async interact(stageId: string, op: unknown): Promise<InteractionResult> {
-    const live = this.requireLive(stageId)
+  async interact(session: Session, stageId: string, op: unknown): Promise<InteractionResult> {
+    const live = this.requireLive(session, stageId)
     const persistedOp = snapshotJsonValue(op as JsonValue)
     if (persistedOp === undefined) {
       throw new Error(`Stage ${JSON.stringify(stageId)} Op must be lossless JSON`)
@@ -327,25 +319,34 @@ export class StageService extends Service {
     const stageOp: StageOp = persistedOutcome === undefined
       ? { stageId, op: persistedOp }
       : { stageId, op: persistedOp, outcome: persistedOutcome }
-    live.session.append('stage/op', stageOp)
-    await this.ctx.sessions.flush(live.session)
+    session.append('stage/op', stageOp)
+    await this.ctx.sessions.flush(session)
     return persistedOutcome === undefined
       ? { kind: 'accepted' }
       : { kind: 'accepted', outcome: persistedOutcome }
   }
 
   /** A detached JSON snapshot of the latest Stage state. */
-  read(stageId: string): JsonValue {
-    return this.requireLive(stageId).machine.read()
+  read(session: Session, stageId: string): JsonValue {
+    return this.requireLive(session, stageId).machine.read()
   }
 
   /** Whether the Stage has reached a terminal state. */
-  completed(stageId: string): boolean {
-    return this.requireLive(stageId).machine.completed
+  completed(session: Session, stageId: string): boolean {
+    return this.requireLive(session, stageId).machine.completed
   }
 
-  private requireLive(stageId: string): LiveStage {
-    const live = this.live.get(stageId)
+  private liveFor(session: Session): Map<string, LiveStage> {
+    let live = this.live.get(session)
+    if (live === undefined) {
+      live = new Map()
+      this.live.set(session, live)
+    }
+    return live
+  }
+
+  private requireLive(session: Session, stageId: string): LiveStage {
+    const live = this.live.get(session)?.get(stageId)
     if (live === undefined) {
       throw new Error(`Stage ${JSON.stringify(stageId)} is not live; call ensure() first`)
     }

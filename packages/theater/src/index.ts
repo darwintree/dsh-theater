@@ -1,22 +1,19 @@
-import type { Context } from '@deepseek-ai/cordis'
-import { defineTool } from '@deepseek-ai/dsh-tools'
-
-export const name = 'greet-tool'
-export const inject = ['tools']
-
-export function apply(ctx: Context): void {
-  ctx.tools.register(defineTool({
-    name: 'greet',
-    description: 'Greet someone by name.',
-    parameters: {
-      name: { type: 'string', required: true, description: 'The name to greet' },
-    },
-    output: {
-      schema: { type: 'string' },
-      render: (_args, value) => [{ type: 'text', text: value }],
-    },
-    async execute(args) {
-      return `Hello, ${args.name}!`
-    },
-  }))
-}
+export { characterSessionId } from './configuration.js'
+export { THEATER_REQUIRED_EVENT_TYPES, registerTheaterSessionEventTypes } from './events.js'
+export { TheaterService, TheaterService as default } from './service.js'
+export type {
+  CreatePerformanceInput,
+  Director,
+  DirectorAction,
+  DirectorContext,
+  DirectorDecision,
+  ForkPerformanceInput,
+  PerformanceRead,
+  PerformanceRuntimeStatus,
+  ResumePerformanceInput,
+  TheaterCharacterContribution,
+  TheaterConfigured,
+  TheaterSegmentEnded,
+  TheaterSegmentStarted,
+  TheaterStageContribution,
+} from './types.js'
