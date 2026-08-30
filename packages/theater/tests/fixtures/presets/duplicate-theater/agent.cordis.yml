@@ -15,7 +15,7 @@
             params: { stage: board1, color: black }
 - id: first-director
   name: '../../../../../theater-gomoku/dist/director.js'
-  config: { stage: board1 }
+  config: { stage: board1, instruction: Make one legal move. }
 - id: second-director
   name: '../../../../../theater-gomoku/dist/director.js'
-  config: { stage: board1 }
+  config: { stage: board1, instruction: Make one legal move. }

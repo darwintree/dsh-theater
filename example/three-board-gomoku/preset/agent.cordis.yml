@@ -51,6 +51,9 @@
   name: '@darwintree/dsh-theater-example-three-board-gomoku/director'
   config:
     master: master
+    instructions:
+      challenger: Inspect your assigned board, then place exactly one legal black stone.
+      master: Use the game parameter and answer every listed game before ending this turn.
     games:
       - { stage: board1, challenger: challenger1 }
       - { stage: board2, challenger: challenger2 }

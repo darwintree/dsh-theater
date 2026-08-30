@@ -27,3 +27,4 @@
   name: '../../../../../theater-gomoku/dist/director.js'
   config:
     stage: board1
+    instruction: Make exactly one legal test move.

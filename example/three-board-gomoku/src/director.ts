@@ -4,6 +4,10 @@ import { formatGomokuCoordinate, type GomokuState } from '@darwintree/dsh-theate
 
 export interface Config {
   readonly master: string
+  readonly instructions: {
+    readonly challenger: string
+    readonly master: string
+  }
   readonly games: readonly {
     readonly stage: string
     readonly challenger: string
@@ -24,8 +28,19 @@ function nonEmpty(value: unknown, label: string): string {
   return value
 }
 
-function parseConfig(config: Config): { master: string; games: Game[] } {
+function parseConfig(config: Config): {
+  master: string
+  games: Game[]
+  instructions: { challenger: string; master: string }
+} {
   const master = nonEmpty(config.master, 'master Character ID')
+  if (typeof config.instructions !== 'object' || config.instructions === null || Array.isArray(config.instructions)) {
+    throw new Error('instructions must be an object')
+  }
+  const instructions = {
+    challenger: nonEmpty(config.instructions.challenger, 'challenger instruction'),
+    master: nonEmpty(config.instructions.master, 'master instruction'),
+  }
   if (!Array.isArray(config.games) || config.games.length !== 3) {
     throw new Error('three-board Director requires exactly three games')
   }
@@ -48,7 +63,7 @@ function parseConfig(config: Config): { master: string; games: Game[] } {
   if (games.some(game => game.challenger === master)) {
     throw new Error('master must differ from every challenger')
   }
-  return { master, games }
+  return { master, games, instructions }
 }
 
 function previous(state: GomokuState): string {
@@ -58,7 +73,7 @@ function previous(state: GomokuState): string {
 }
 
 export function createDirector(config: Config): Director {
-  const { master, games } = parseConfig(config)
+  const { master, games, instructions } = parseConfig(config)
   return async (context) => {
     const active = games
       .map(game => ({ ...game, state: context.readStage(game.stage) as unknown as GomokuState }))
@@ -73,7 +88,10 @@ export function createDirector(config: Config): Director {
         characterId: game.challenger,
         instruction: [{
           type: 'text',
-          text: `You play black in game ${game.number}. The previous action was ${previous(game.state)}. Read your board and make one legal move.`,
+          text: [
+            `You play black in game ${game.number}. The previous action was ${previous(game.state)}.`,
+            instructions.challenger,
+          ].join('\n'),
         }],
       }
     }
@@ -87,7 +105,7 @@ export function createDirector(config: Config): Director {
         text: [
           `You play white. Respond to every pending game: ${pending.map(game => game.number).join(', ')}.`,
           ...pending.map(game => `Game ${game.number}: ${previous(game.state)}.`),
-          'Use the game parameter when reading a board or placing a stone. You may respond to several games in this turn.',
+          instructions.master,
         ].join('\n'),
       }],
     }

@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 import StageService from '@darwintree/dsh-stage'
 import * as StagePreset from '@darwintree/dsh-stage/preset'
 import * as Gomoku from '../src/index.ts'
+import { apply as applyDirector } from '../src/director.ts'
 import * as SingleAgent from '../src/single-agent.ts'
 
 async function setup() {
@@ -128,3 +129,10 @@ describe('Gomoku tool', () => {
     expect(result.concludesTurn).toBeUndefined()
   })
 });
+
+describe('Gomoku Director', () => {
+  it('rejects a blank configured instruction', () => {
+    expect(() => applyDirector(new Context(), { stage: 'board1', instruction: ' ' }))
+      .toThrow('instruction must be non-empty')
+  })
+})

@@ -114,6 +114,7 @@ Character's System Prompt and complete Tool list, and its Director:
   name: '@darwintree/dsh-theater-gomoku/director'
   config:
     stage: board1
+    instruction: Use your available tools to make one legal move.
 ```
 
 Stage and Tool factory providers register process capabilities at host startup.

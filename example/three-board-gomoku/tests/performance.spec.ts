@@ -14,10 +14,11 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MockLlmAdapter, type MockResponse } from '@darwintree/dsh-llm-mock'
 import StageService from '@darwintree/dsh-stage'
-import TheaterService from '@darwintree/dsh-theater'
+import TheaterService, { characterSessionId } from '@darwintree/dsh-theater'
 import * as Gomoku from '@darwintree/dsh-theater-gomoku'
 import * as GomokuTheater from '@darwintree/dsh-theater-gomoku/theater'
 import * as Example from '../src/index.ts'
+import { createDirector } from '../src/director.ts'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 let ctx: Context | undefined
@@ -106,5 +107,29 @@ describe('three-board Gomoku example', () => {
     expect(stages.board1?.state).toMatchObject({ moveNumber: 3 })
     expect(stages.board2?.state).toMatchObject({ moveNumber: 2 })
     expect(stages.board3?.state).toMatchObject({ moveNumber: 2 })
+
+    const instructionFor = (characterId: string) => ctx!.sessions
+      .get(characterSessionId(performanceId, characterId))!
+      .events
+      .flatMap(event => event.type === 'user/message' ? event.data.content : [])
+      .flatMap(block => block.type === 'text' ? [block.text] : [])[0]
+    const challengerInstruction = instructionFor('challenger1')
+    const masterInstruction = instructionFor('master')
+    expect(challengerInstruction).toContain('You play black in game 1.')
+    expect(challengerInstruction).toContain('Inspect your assigned board, then place exactly one legal black stone.')
+    expect(masterInstruction).toContain('Respond to every pending game: 1, 2, 3.')
+    expect(masterInstruction).toContain('Use the game parameter and answer every listed game before ending this turn.')
+  })
+
+  it('rejects blank configured instructions', () => {
+    expect(() => createDirector({
+      master: 'master',
+      instructions: { challenger: ' ', master: 'Act.' },
+      games: [
+        { stage: 'board1', challenger: 'challenger1' },
+        { stage: 'board2', challenger: 'challenger2' },
+        { stage: 'board3', challenger: 'challenger3' },
+      ],
+    })).toThrow('challenger instruction must be non-empty')
   })
 })

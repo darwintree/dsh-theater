@@ -158,7 +158,11 @@ async function writeCompatibilityPresets(
     rows,
     '- id: director',
     `  name: ${JSON.stringify(director)}`,
-    ...config.director === 'gomoku' ? ['  config:', '    stage: board1'] : [],
+    ...config.director === 'gomoku' ? [
+      '  config:',
+      '    stage: board1',
+      '    instruction: Make exactly one legal generated-preset move.',
+    ] : [],
     '',
   ].join('\n'))
 }
@@ -266,6 +270,11 @@ describe('Performance Theater', () => {
       expect(systems.get(String(characterSession.id))).not.toContain('Host default persona.')
       expect(characterSession.events.some(event => event.type === 'agent-preset/selected')).toBe(false)
       expect(characterSession.events.some(event => event.type === 'user/message')).toBe(true)
+      const instructions = characterSession.events
+        .flatMap(event => event.type === 'user/message' ? event.data.content : [])
+        .flatMap(block => block.type === 'text' ? [block.text] : [])
+      expect(instructions[0]).toContain('Previous action:')
+      expect(instructions[0]).toContain('Make exactly one legal test move.')
       expect(characterSession.events.some(event => event.type === 'tool/call')).toBe(true)
       expect(characterSession.events.some(event => event.type === 'stage/op')).toBe(false)
       expect(JSON.stringify(characterSession.events)).not.toContain('stage/op')

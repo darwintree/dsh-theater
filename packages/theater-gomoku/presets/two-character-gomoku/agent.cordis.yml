@@ -36,3 +36,4 @@
   name: '@darwintree/dsh-theater-gomoku/director'
   config:
     stage: board1
+    instruction: Use your available tools to make one legal move.
