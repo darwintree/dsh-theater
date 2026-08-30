@@ -1,5 +1,6 @@
 packages:
   - packages/*
+  - example/*
 autoInstallPeers: false
 allowBuilds:
   esbuild: true

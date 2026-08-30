@@ -1,0 +1,3 @@
+- insert:
+    - id: theater-example-three-board-gomoku
+      name: '@darwintree/dsh-theater-example-three-board-gomoku'

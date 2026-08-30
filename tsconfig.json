@@ -1,6 +1,7 @@
 {
   "files": [],
   "references": [
+    { "path": "./example/three-board-gomoku" },
     { "path": "./packages/llm-mock" },
     { "path": "./packages/stage" },
     { "path": "./packages/theater-gomoku" },

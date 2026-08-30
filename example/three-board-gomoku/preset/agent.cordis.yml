@@ -1,0 +1,57 @@
+- id: stages
+  name: '@darwintree/dsh-stage/preset'
+  config:
+    stages:
+      board1:
+        machine: gomoku
+        params: { boardSize: 15, winLength: 5 }
+      board2:
+        machine: gomoku
+        params: { boardSize: 15, winLength: 5 }
+      board3:
+        machine: gomoku
+        params: { boardSize: 15, winLength: 5 }
+- id: performance
+  name: '@darwintree/dsh-theater/preset'
+  config:
+    autoAdvance: false
+    characters:
+      challenger1:
+        systemPrompt: You are Challenger 1. You play black only in game 1 and must make one legal move when instructed.
+        tools:
+          - factory: gomoku-read-board
+            params: { stage: board1 }
+          - factory: gomoku-place-stone
+            params: { stage: board1, color: black }
+      challenger2:
+        systemPrompt: You are Challenger 2. You play black only in game 2 and must make one legal move when instructed.
+        tools:
+          - factory: gomoku-read-board
+            params: { stage: board2 }
+          - factory: gomoku-place-stone
+            params: { stage: board2, color: black }
+      challenger3:
+        systemPrompt: You are Challenger 3. You play black only in game 3 and must make one legal move when instructed.
+        tools:
+          - factory: gomoku-read-board
+            params: { stage: board3 }
+          - factory: gomoku-place-stone
+            params: { stage: board3, color: black }
+      master:
+        systemPrompt: >-
+          You are the Master. You play white in three simultaneous Gomoku games.
+          Use the game parameter to select a board and respond to every game
+          listed by the Director before ending your turn.
+        tools:
+          - factory: three-board-gomoku-read-board
+            params: { stages: [board1, board2, board3] }
+          - factory: three-board-gomoku-place-stone
+            params: { stages: [board1, board2, board3] }
+- id: director
+  name: '@darwintree/dsh-theater-example-three-board-gomoku/director'
+  config:
+    master: master
+    games:
+      - { stage: board1, challenger: challenger1 }
+      - { stage: board2, challenger: challenger2 }
+      - { stage: board3, challenger: challenger3 }
