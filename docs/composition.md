@@ -93,7 +93,7 @@ Preset resolution
 ## Performance composition
 
 A Performance preset is the single composition root for its Stages, each
-Character's complete Tool list, and its Director:
+Character's System Prompt and complete Tool list, and its Director:
 
 ```yaml
 - id: stages
@@ -106,14 +106,17 @@ Character's complete Tool list, and its Director:
 - id: performance
   name: '@darwintree/dsh-theater/preset'
   config:
+    autoAdvance: true
     characters:
       black:
+        systemPrompt: You are the black player in a Gomoku game.
         tools:
           - factory: gomoku-read-board
             params: { stage: board1 }
           - factory: gomoku-place-stone
             params: { stage: board1, color: black }
       white:
+        systemPrompt: You are the white player in a Gomoku game.
         tools:
           - factory: gomoku-place-stone
             params: { stage: board1, color: white }
@@ -127,10 +130,18 @@ Character's complete Tool list, and its Director:
 Stage and Tool factory providers register process capabilities at host startup.
 The preset stores only creation plans. For each Performance runtime, Theater
 opens the declared Stages in the Performance Session, materializes fresh Tools
-bound to those Stages, and registers the exact list in each bare Character
-Agent scope. A Tool receives a bound Stage handle; it does not know the
-Performance, Character, owner Session, or Session ID convention.
+bound to those Stages, shadows the deployment persona with the declared System
+Prompt, and registers the exact Tool list in each bare Character Agent scope.
+A Tool receives a bound Stage handle; it does not know the Performance,
+Character, owner Session, or Session ID convention.
 
 This keeps two Performances isolated even when they use the same preset and
 Stage IDs. Resume and fork rematerialize Tools against the target Performance
 Session. Character Sessions do not mount separate Agent Presets.
+
+`autoAdvance` defaults to `true` and is stored in the durable Performance
+configuration. With `false`, Theater settles at each Director Point until a
+caller grants one Character Segment through `ctx.theater.advance()`. A caller
+may change the current runtime activation through `setAutoAdvance()` without
+mutating the preset or the Performance Session; resume and fork establish the
+preset's durable default again.

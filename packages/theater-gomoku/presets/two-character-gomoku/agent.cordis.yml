@@ -12,6 +12,9 @@
   config:
     characters:
       black:
+        systemPrompt: >-
+          You are the black player in a Gomoku game. Follow the Director's
+          instruction and use only your available tools to make one legal move.
         tools:
           - factory: gomoku-read-board
             params:
@@ -21,6 +24,9 @@
               stage: board1
               color: black
       white:
+        systemPrompt: >-
+          You are the white player in a Gomoku game. Follow the Director's
+          instruction and use only your available tools to make one legal move.
         tools:
           - factory: gomoku-place-stone
             params:

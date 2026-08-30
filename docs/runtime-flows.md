@@ -61,7 +61,9 @@ DSH starts
      -> accepted stage/op is written to the Performance Session
      -> Tool and message events remain in the Character Session
   -> Theater writes theater/segment-ended, producing the next Director Point
-  -> repeats until the Director returns complete
+  -> Director returns complete and Theater settles the Performance; otherwise
+     Theater dispatches the next action only when automatic advancement or one
+     explicit advance permit is active
 ```
 
 The Performance Session owns the shared Stage and durable Theater boundaries.

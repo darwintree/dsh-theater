@@ -29,8 +29,10 @@ export function characterSessionId(
 export function resolvedConfiguration(
   presetId: string,
   contributions: {
+    readonly autoAdvance: boolean
     readonly characters: readonly {
       readonly id: string
+      readonly systemPrompt: string
       readonly tools: readonly { readonly factory: TheaterToolFactory; readonly config: JsonValue }[]
     }[]
     readonly stages: readonly {
@@ -41,6 +43,7 @@ export function resolvedConfiguration(
   },
 ): TheaterConfigured {
   nonEmpty(presetId, 'Agent Preset ID')
+  if (typeof contributions.autoAdvance !== 'boolean') throw new Error('Theater autoAdvance must be boolean')
   if (contributions.characters.length === 0) throw new Error('Theater preset requires at least one Character contribution')
   if (contributions.stages.length === 0) throw new Error('Theater preset requires at least one Stage contribution')
   const characterIds = new Set<string>()
@@ -53,6 +56,7 @@ export function resolvedConfiguration(
     }
     return {
       id,
+      systemPrompt: nonEmpty(character.systemPrompt, `System Prompt for Character ${JSON.stringify(id)}`),
       tools: character.tools.map(tool => ({
         factory: nonEmpty(tool.factory.kind, `Tool factory for Character ${JSON.stringify(id)}`),
         config: tool.config,
@@ -71,7 +75,7 @@ export function resolvedConfiguration(
       config: stage.config,
     }
   })
-  return { presetId, characters, stages }
+  return { presetId, autoAdvance: contributions.autoAdvance, characters, stages }
 }
 
 export function compatible(current: TheaterConfigured, durable: TheaterConfigured): boolean {

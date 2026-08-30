@@ -14,6 +14,7 @@ import {
   type SessionId as SessionIdType,
 } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
+import { PERSONA_ORDER, PERSONA_SECTION } from '@deepseek-ai/dsh-system-prompt'
 import {
   AnonymousEntries,
   ScopedLayers,
@@ -36,8 +37,9 @@ import type {
   CreatePerformanceInput,
   Director,
   ForkPerformanceInput,
+  PerformanceActivity,
+  PerformancePhase,
   PerformanceRead,
-  PerformanceRuntimeStatus,
   ResumePerformanceInput,
   TheaterCharacterContribution,
   TheaterConfiguredCharacter,
@@ -47,16 +49,19 @@ import type {
 } from './types.js'
 
 interface ContributionLayer extends ScopeLayer {
+  readonly autoAdvance: AnonymousEntries<boolean>
   readonly characters: AnonymousEntries<TheaterCharacterContribution>
   readonly directors: AnonymousEntries<Director>
 }
 
 interface ResolvedCharacter {
   readonly id: string
+  readonly systemPrompt: string
   readonly tools: readonly { readonly factory: TheaterToolFactory; readonly config: JsonValue }[]
 }
 
 interface TheaterContributions {
+  readonly autoAdvance: boolean
   readonly characters: readonly ResolvedCharacter[]
   readonly stages: readonly {
     readonly stageId: string
@@ -73,21 +78,24 @@ interface PerformanceRuntime {
   readonly contributions?: TheaterContributions
   readonly characters: Map<string, Agent>
   readonly liveStages: Set<string>
-  status: PerformanceRuntimeStatus
+  phase: PerformancePhase
+  activity: PerformanceActivity
+  autoAdvance: boolean
   error?: Error
   mainLoop: Promise<void>
 }
 
 /** `ctx.theater`: preset-composed Performance creation, driving, reading, resume, and fork. */
 export class TheaterService extends Service {
-  static inject = ['sessions', 'agents', 'agentPresets', 'agentDefaultModel', 'stages', 'tools']
+  static inject = ['sessions', 'agents', 'agentPresets', 'agentDefaultModel', 'systemPrompt', 'stages', 'tools']
 
   private readonly layers = new ScopedLayers<ContributionLayer>(
     () => ({
+      autoAdvance: new AnonymousEntries<boolean>(),
       characters: new AnonymousEntries<TheaterCharacterContribution>(),
       directors: new AnonymousEntries<Director>(),
       isEmpty() {
-        return this.characters.isEmpty() && this.directors.isEmpty()
+        return this.autoAdvance.isEmpty() && this.characters.isEmpty() && this.directors.isEmpty()
       },
     }),
     () => undefined,
@@ -102,6 +110,11 @@ export class TheaterService extends Service {
 
   registerCharacter(character: TheaterCharacterContribution): () => void {
     return this.registerContribution(character, layer => layer.characters, 'registerCharacter')
+  }
+
+  registerAutoAdvance(autoAdvance: boolean): () => void {
+    if (typeof autoAdvance !== 'boolean') throw new Error('theater.registerAutoAdvance() requires a boolean')
+    return this.registerContribution(autoAdvance, layer => layer.autoAdvance, 'registerAutoAdvance')
   }
 
   registerToolFactory(factory: TheaterToolFactory): () => void {
@@ -144,11 +157,14 @@ export class TheaterService extends Service {
     const performanceId = SessionId(nonEmpty(String(input.performanceId), 'Performance Session ID'))
     this.assertAvailable(performanceId)
     const presetId = nonEmpty(input.presetId, 'Agent Preset ID')
+    if (typeof input.cwd !== 'string' || input.cwd.trim() === '') {
+      throw new Error('Performance cwd must be non-empty')
+    }
     const contributions = await this.resolveContributions(presetId)
     const configured = resolvedConfiguration(presetId, contributions)
     const scope = createScope(this.ctx, { performanceId })
     try {
-      const session = scope.ctx.sessions.create(performanceId)
+      const session = scope.ctx.sessions.create(performanceId, { meta: { cwd: input.cwd } })
       const runtime = this.runtime(scope, session, configured, contributions)
       await this.openStages(runtime)
       await this.createCharacters(runtime)
@@ -160,6 +176,7 @@ export class TheaterService extends Service {
       await scope.ctx.sessions.flush(session)
       this.live.set(performanceId, runtime)
       this.startMainLoop(runtime)
+      if (!runtime.autoAdvance) await runtime.mainLoop
       return this.read(performanceId)
     } catch (error) {
       this.live.delete(performanceId)
@@ -177,6 +194,9 @@ export class TheaterService extends Service {
     const preparation = await persistence.prepare(performanceId)
     try {
       const session = preparation.session
+      if (session.header.cwd === undefined) {
+        throw new Error('cannot resume Performance: Session header has no cwd')
+      }
       scope.ctx.effect(function* () {
         yield scope.ctx.sessions.enter(session)
         scope.ctx.sessions.announce(session)
@@ -198,12 +218,13 @@ export class TheaterService extends Service {
       if (contributions !== undefined) await this.openCompatibleStages(runtime)
       this.live.set(performanceId, runtime)
       if (incompatibility !== undefined || contributions === undefined || current === undefined) {
-        runtime.status = 'incompatible'
+        runtime.phase = 'incompatible'
         runtime.error = incompatibility ?? new Error('current Theater contributions are incompatible')
         return this.read(performanceId)
       }
       await this.resumeCharacters(runtime)
       this.startMainLoop(runtime)
+      if (!runtime.autoAdvance) await runtime.mainLoop
       return this.read(performanceId)
     } catch (error) {
       this.live.delete(performanceId)
@@ -219,7 +240,7 @@ export class TheaterService extends Service {
     const childId = SessionId(nonEmpty(String(input.childPerformanceId), 'Child Performance Session ID'))
     this.assertAvailable(childId)
     const source = this.requireRuntime(sourceId)
-    if (source.status === 'incompatible') throw source.error
+    if (source.phase === 'incompatible') throw source.error
     if (!Number.isSafeInteger(input.cursor) || input.cursor < 1 || input.cursor > source.session.events.length) {
       throw new Error(`Performance fork cursor must be an exclusive sequence between 1 and ${source.session.events.length}`)
     }
@@ -253,6 +274,7 @@ export class TheaterService extends Service {
       ])
       this.live.set(childId, runtime)
       this.startMainLoop(runtime)
+      if (!runtime.autoAdvance) await runtime.mainLoop
       return this.read(childId)
     } catch (error) {
       await scope.dispose()
@@ -262,14 +284,37 @@ export class TheaterService extends Service {
 
   async whenIdle(performanceId: SessionIdType): Promise<void> {
     const runtime = this.requireRuntime(performanceId)
-    await runtime.mainLoop
-    if (runtime.status === 'failed' || runtime.status === 'incompatible') {
+    while (true) {
+      const mainLoop = runtime.mainLoop
+      await mainLoop
+      if (mainLoop === runtime.mainLoop && runtime.activity === 'idle') break
+    }
+    if (runtime.phase === 'failed' || runtime.phase === 'incompatible') {
       throw runtime.error ?? new Error(`Performance ${JSON.stringify(performanceId)} cannot advance`)
     }
   }
 
+  async advance(performanceId: SessionIdType): Promise<PerformanceRead> {
+    const runtime = this.requireActiveRuntime(performanceId)
+    if (runtime.autoAdvance) throw new Error('cannot manually advance a Performance while autoAdvance is enabled')
+    if (runtime.activity === 'running') throw new Error('cannot manually advance a running Performance')
+    this.startMainLoop(runtime, true)
+    await this.whenIdle(performanceId)
+    return this.read(performanceId)
+  }
+
+  setAutoAdvance(performanceId: SessionIdType, autoAdvance: boolean): PerformanceRead {
+    if (typeof autoAdvance !== 'boolean') throw new Error('Performance autoAdvance must be boolean')
+    const runtime = this.requireActiveRuntime(performanceId)
+    runtime.autoAdvance = autoAdvance
+    if (autoAdvance && runtime.activity === 'idle') this.startMainLoop(runtime)
+    return this.read(performanceId)
+  }
+
   read(performanceId: SessionIdType): PerformanceRead {
     const runtime = this.requireRuntime(performanceId)
+    const cwd = runtime.session.header.cwd
+    if (cwd === undefined) throw new Error('Performance Session header has no cwd')
     const analysis = analyze(runtime.session.events)
     const characters = Object.fromEntries(runtime.configured.characters.map(character => [
       character.id,
@@ -286,7 +331,10 @@ export class TheaterService extends Service {
     return {
       performanceId: runtime.session.id,
       presetId: runtime.configured.presetId,
-      status: runtime.status,
+      cwd,
+      phase: runtime.phase,
+      activity: runtime.activity,
+      autoAdvance: runtime.autoAdvance,
       ...runtime.error === undefined ? {} : { error: runtime.error.message },
       characters,
       stages,
@@ -311,14 +359,19 @@ export class TheaterService extends Service {
       ...contributions === undefined ? {} : { contributions },
       characters: new Map(),
       liveStages: new Set(),
-      status: 'running',
+      phase: 'active',
+      activity: 'idle',
+      autoAdvance: configured.autoAdvance,
       mainLoop: Promise.resolve(),
     }
   }
 
-  private startMainLoop(runtime: PerformanceRuntime): void {
+  private startMainLoop(runtime: PerformanceRuntime, advanceOnce = false): void {
+    if (runtime.phase !== 'active') return
+    if (runtime.activity !== 'idle') throw new Error('Performance Main Loop is already running')
     const contributions = runtime.contributions
     if (contributions === undefined) throw new Error('cannot drive Performance without Theater contributions')
+    runtime.activity = 'running'
     runtime.mainLoop = (async () => {
       try {
         const directorContext = {
@@ -328,18 +381,22 @@ export class TheaterService extends Service {
           const decision = await contributions.director(directorContext)
           switch (decision.kind) {
             case 'act':
+              if (!runtime.autoAdvance && !advanceOnce) return
+              advanceOnce = false
               await this.act(runtime, decision.characterId, decision.instruction)
               continue
             case 'complete':
-              runtime.status = 'completed'
+              runtime.phase = 'completed'
               return
             default:
               throw new Error(`Director returned an unknown decision: ${JSON.stringify(decision)}`)
           }
         }
       } catch (error) {
-        runtime.status = 'failed'
+        runtime.phase = 'failed'
         runtime.error = error instanceof Error ? error : new Error(String(error))
+      } finally {
+        runtime.activity = 'idle'
       }
     })()
   }
@@ -392,6 +449,10 @@ export class TheaterService extends Service {
   private async resolveContributions(presetId: string): Promise<TheaterContributions> {
     const key: ScopeKey = await this.ctx.agentPresets.standingKeyFor(presetId)
     const layer = this.layers.peek(key)
+    const autoAdvanceValues = layer === undefined ? [] : [...layer.autoAdvance.values()]
+    if (autoAdvanceValues.length > 1) {
+      throw new Error(`Agent Preset ${JSON.stringify(presetId)} must contribute at most one Theater autoAdvance value; found ${autoAdvanceValues.length}`)
+    }
     const directors = layer === undefined ? [] : [...layer.directors.values()]
     if (directors.length !== 1) {
       throw new Error(`Agent Preset ${JSON.stringify(presetId)} must contribute exactly one Theater Director; found ${directors.length}`)
@@ -399,6 +460,7 @@ export class TheaterService extends Service {
     const registeredCharacters = layer === undefined ? [] : [...layer.characters.values()]
     const characters = registeredCharacters.map((character) => ({
       id: character.id,
+      systemPrompt: character.systemPrompt,
       tools: character.tools.map((declaration) => {
         const kind = nonEmpty(declaration.factory, `Tool factory for Character ${JSON.stringify(character.id)}`)
         const factory = this.toolFactories.get(kind)
@@ -417,6 +479,7 @@ export class TheaterService extends Service {
       ...declaration,
     }))
     return {
+      autoAdvance: autoAdvanceValues[0] ?? true,
       characters,
       stages,
       director: directors[0]!,
@@ -458,19 +521,21 @@ export class TheaterService extends Service {
       seed: readonly SessionEvent[]
     }[] = [],
   ): Promise<void> {
+    const cwd = runtime.session.header.cwd
+    if (cwd === undefined) throw new Error('Performance Session header has no cwd')
     const byId = new Map(seeds.map(seed => [seed.character.id, seed]))
     for (const character of runtime.configured.characters) {
       const seed = byId.get(character.id)
-      const meta = seed === undefined
-        ? undefined
-        : {
-            parentSession: seed.parent.id,
-            seedLength: seed.watermark,
-          }
       const handle = await runtime.scope.ctx.agents.create({
         sessionId: characterSessionId(runtime.session.id, character.id),
         ...seed === undefined ? {} : { seed: seed.seed },
-        ...meta === undefined ? {} : { meta },
+        meta: {
+          cwd,
+          ...seed === undefined ? {} : {
+            parentSession: seed.parent.id,
+            seedLength: seed.watermark,
+          },
+        },
         agentOptions: runtime.scope.ctx.agentDefaultModel.currentSelection(),
         setup: agentCtx => this.setupCharacter(runtime, character.id, agentCtx),
       })
@@ -500,6 +565,11 @@ export class TheaterService extends Service {
     if (contributions === undefined) throw new Error('cannot compose Character without Theater contributions')
     const character = contributions.characters.find(candidate => candidate.id === characterId)
     if (character === undefined) throw new Error(`missing current Character contribution ${JSON.stringify(characterId)}`)
+    agentCtx.systemPrompt.section({
+      name: PERSONA_SECTION,
+      order: PERSONA_ORDER,
+      text: character.systemPrompt,
+    })
     const stages = new Map(contributions.stages.map(stage => [stage.stageId, stage]))
     const resolveStage = (stageId: string) => {
       if (!stages.has(stageId)) throw new Error(`Stage ${JSON.stringify(stageId)} is not declared by this Performance preset`)
@@ -540,6 +610,14 @@ export class TheaterService extends Service {
   private requireRuntime(performanceId: SessionIdType): PerformanceRuntime {
     const runtime = this.live.get(performanceId)
     if (runtime === undefined) throw new Error(`Performance ${JSON.stringify(performanceId)} is not live`)
+    return runtime
+  }
+
+  private requireActiveRuntime(performanceId: SessionIdType): PerformanceRuntime {
+    const runtime = this.requireRuntime(performanceId)
+    if (runtime.phase !== 'active') {
+      throw new Error(`Performance ${JSON.stringify(performanceId)} is not active: ${runtime.phase}`)
+    }
     return runtime
   }
 }

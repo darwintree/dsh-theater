@@ -9,13 +9,6 @@
   config:
     characters:
       black:
-        systemPrompt: You are the black Gomoku test Character.
         tools:
           - factory: gomoku-place-stone
             params: { stage: board1, color: black }
-- id: first-director
-  name: '../../../../../theater-gomoku/dist/director.js'
-  config: { stage: board1 }
-- id: second-director
-  name: '../../../../../theater-gomoku/dist/director.js'
-  config: { stage: board1 }

@@ -88,7 +88,7 @@ async function setup(
   }
   await ctx.plugin(StageService)
   await ctx.plugin(Gomoku)
-  await ctx.plugin(SystemPrompt, { persona: '' })
+  await ctx.plugin(SystemPrompt, { persona: 'Host default persona.' })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [], maxParallelToolCalls: 1 })
@@ -114,15 +114,25 @@ async function setup(
 async function writeCompatibilityPresets(
   root: string,
   config: {
-    characters: readonly { id: string; color: 'black' | 'white'; read: boolean }[]
+    autoAdvance?: boolean
+    director?: 'complete' | 'gomoku'
+    characters: readonly {
+      id: string
+      systemPrompt: string
+      color: 'black' | 'white'
+      read: boolean
+    }[]
     boardSize: number
   },
 ): Promise<void> {
   const stagePreset = join(FIXTURES, '..', '..', '..', 'stage', 'dist', 'preset.js')
   const theaterPreset = join(FIXTURES, '..', '..', 'dist', 'preset.js')
-  const director = join(FIXTURES, 'plugins', 'complete-director.js')
+  const director = config.director === 'gomoku'
+    ? join(FIXTURES, '..', '..', '..', 'theater-gomoku', 'dist', 'director.js')
+    : join(FIXTURES, 'plugins', 'complete-director.js')
   const rows = config.characters.flatMap(character => [
     `      ${character.id}:`,
+    `        systemPrompt: ${JSON.stringify(character.systemPrompt)}`,
     '        tools:',
     ...character.read ? [
       '          - factory: gomoku-read-board',
@@ -143,17 +153,28 @@ async function writeCompatibilityPresets(
     '- id: performance',
     `  name: ${JSON.stringify(theaterPreset)}`,
     '  config:',
+    ...config.autoAdvance === undefined ? [] : [`    autoAdvance: ${config.autoAdvance}`],
     '    characters:',
     rows,
     '- id: director',
     `  name: ${JSON.stringify(director)}`,
+    ...config.director === 'gomoku' ? ['  config:', '    stage: board1'] : [],
     '',
   ].join('\n'))
 }
 
 describe('Performance Theater', () => {
   it('owns the Main Loop and repeatedly evaluates a single-step Director until terminal Stage state', async () => {
-    const ctx = await setup()
+    const systems = new Map<string, string | undefined>()
+    const ctx = await setup(defaultPlan, (options) => {
+      const sessionId = String(options.sessionId)
+      systems.set(sessionId, options.system)
+      return moveScript(
+        sessionId,
+        options.messages.filter(message => message.role === 'assistant').length,
+        defaultPlan,
+      )
+    })
     ctx.tools.register(defineTool({
       name: 'host_tool',
       description: 'A host Tool that must not leak into Character Tool lists.',
@@ -180,11 +201,11 @@ describe('Performance Theater', () => {
       })
     })
 
-    await ctx.theater.create({ performanceId, presetId: 'two-character-gomoku' })
+    await ctx.theater.create({ performanceId, presetId: 'two-character-gomoku', cwd: FIXTURES })
     await ctx.theater.whenIdle(performanceId)
 
     const performance = ctx.theater.read(performanceId)
-    expect(performance.status).toBe('completed')
+    expect(performance).toMatchObject({ phase: 'completed', activity: 'idle', autoAdvance: true })
     expect(performance.stages.board1).toMatchObject({
       state: { moveNumber: 5, winner: 'black', isFinished: true },
     })
@@ -194,9 +215,18 @@ describe('Performance Theater', () => {
     })
 
     const session = ctx.sessions.get(performanceId)!
+    expect(performance.cwd).toBe(FIXTURES)
+    expect(session.header.cwd).toBe(FIXTURES)
     expect(session.header.agentPreset).toBeUndefined()
     expect(session.events.find(event => event.type === 'theater/configured')).toMatchObject({
-      data: { presetId: 'two-character-gomoku' },
+      data: {
+        presetId: 'two-character-gomoku',
+        autoAdvance: true,
+        characters: [
+          { id: 'black', systemPrompt: 'You are the black Gomoku test Character.' },
+          { id: 'white', systemPrompt: 'You are the white Gomoku test Character.' },
+        ],
+      },
     })
     expect(session.events.filter(event => event.type === 'stage/op')).toHaveLength(5)
     expect(session.events.some(event => event.type === 'user/message')).toBe(false)
@@ -230,7 +260,10 @@ describe('Performance Theater', () => {
 
     for (const character of ['black', 'white'] as const) {
       const characterSession = ctx.sessions.get(characterSessionId(performanceId, character))!
+      expect(characterSession.header.cwd).toBe(FIXTURES)
       expect(characterSession.header.agentPreset).toBeUndefined()
+      expect(systems.get(String(characterSession.id))).toContain(`You are the ${character} Gomoku test Character.`)
+      expect(systems.get(String(characterSession.id))).not.toContain('Host default persona.')
       expect(characterSession.events.some(event => event.type === 'agent-preset/selected')).toBe(false)
       expect(characterSession.events.some(event => event.type === 'user/message')).toBe(true)
       expect(characterSession.events.some(event => event.type === 'tool/call')).toBe(true)
@@ -243,6 +276,79 @@ describe('Performance Theater', () => {
     expect(ctx.tools.schemas(white).map(tool => tool.name)).toEqual(['place_stone'])
   })
 
+  it('stops automatic driving at the next Director Point, advances once, then resumes automatically', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-theater-manual-'))
+    let ctx: Context | undefined
+    try {
+      await writeCompatibilityPresets(root, {
+        autoAdvance: false,
+        director: 'gomoku',
+        characters: [
+          { id: 'black', systemPrompt: 'You are black.', color: 'black', read: true },
+          { id: 'white', systemPrompt: 'You are white.', color: 'white', read: false },
+        ],
+        boardSize: 3,
+      })
+      ctx = await setup(defaultPlan, undefined, { presetRoot: root, defaultPreset: 'compat' })
+      const performanceId = SessionId('performance-dynamic-advance')
+
+      expect(await ctx.theater.create({ performanceId, presetId: 'compat', cwd: FIXTURES })).toMatchObject({
+        phase: 'active',
+        activity: 'idle',
+        autoAdvance: false,
+        stages: { board1: { state: { moveNumber: 0 } } },
+      })
+
+      const advanced = await ctx.theater.advance(performanceId)
+      expect(advanced).toMatchObject({
+        phase: 'active',
+        activity: 'idle',
+        autoAdvance: false,
+        stages: { board1: { state: { moveNumber: 1 } } },
+      })
+
+      let disabled = false
+      ctx.on('session/flush', (session) => {
+        if (session.id !== performanceId || disabled
+          || session.events.at(-1)?.type !== 'theater/segment-started') return
+        disabled = true
+        ctx!.theater.setAutoAdvance(performanceId, false)
+      })
+      ctx.theater.setAutoAdvance(performanceId, true)
+      await ctx.theater.whenIdle(performanceId)
+      expect(ctx.theater.read(performanceId)).toMatchObject({
+        phase: 'active',
+        activity: 'idle',
+        autoAdvance: false,
+        stages: { board1: { state: { moveNumber: 2 } } },
+      })
+
+      expect(await ctx.theater.advance(performanceId)).toMatchObject({
+        phase: 'active',
+        activity: 'idle',
+        stages: { board1: { state: { moveNumber: 3 } } },
+      })
+      expect(() => ctx!.theater.setAutoAdvance(performanceId, 'yes' as never))
+        .toThrow('Performance autoAdvance must be boolean')
+
+      expect(ctx.theater.setAutoAdvance(performanceId, true)).toMatchObject({
+        phase: 'active',
+        activity: 'running',
+        autoAdvance: true,
+      })
+      await ctx.theater.whenIdle(performanceId)
+      expect(ctx.theater.read(performanceId)).toMatchObject({
+        phase: 'completed',
+        activity: 'idle',
+        autoAdvance: true,
+        stages: { board1: { state: { winner: 'black', moveNumber: 5 } } },
+      })
+    } finally {
+      await ctx?.fiber.dispose()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('forks initial and settled Director Points with Character watermarks and rejects an open Segment cursor atomically', async () => {
     const childPlan: MovePlan = sessionId => sessionId.startsWith('performance-fork-child/')
       ? sessionId.endsWith('/characters/black')
@@ -251,7 +357,7 @@ describe('Performance Theater', () => {
       : defaultPlan(sessionId)
     const ctx = await setup(childPlan)
     const sourceId = SessionId('performance-fork-source')
-    await ctx.theater.create({ performanceId: sourceId, presetId: 'two-character-gomoku' })
+    await ctx.theater.create({ performanceId: sourceId, presetId: 'two-character-gomoku', cwd: FIXTURES })
     await ctx.theater.whenIdle(sourceId)
     const source = ctx.theater.read(sourceId)
     const sourceSession = ctx.sessions.get(sourceId)!
@@ -272,7 +378,9 @@ describe('Performance Theater', () => {
       cursor: source.forkablePositions[0]!,
       childPerformanceId: initialId,
     })
+    expect(ctx.sessions.get(initialId)?.header.cwd).toBe(FIXTURES)
     expect(ctx.sessions.get(characterSessionId(initialId, 'black'))?.header).toMatchObject({
+      cwd: FIXTURES,
       parentSession: characterSessionId(sourceId, 'black'),
       seedLength: 0,
     })
@@ -293,6 +401,7 @@ describe('Performance Theater', () => {
         .filter(event => event.data.characterId === character)
         .at(-1)?.data.characterSessionSeq ?? 0
       expect(ctx.sessions.get(characterSessionId(laterId, character))?.header).toMatchObject({
+        cwd: FIXTURES,
         parentSession: characterSessionId(sourceId, character),
         seedLength: watermark,
       })
@@ -341,7 +450,7 @@ describe('Performance Theater', () => {
     })
     const performanceId = SessionId('performance-retry')
 
-    await ctx.theater.create({ performanceId, presetId: 'two-character-gomoku' })
+    await ctx.theater.create({ performanceId, presetId: 'two-character-gomoku', cwd: FIXTURES })
     await ctx.theater.whenIdle(performanceId)
 
     const performance = ctx.theater.read(performanceId)
@@ -370,12 +479,12 @@ describe('Performance Theater', () => {
     })
     const sourceId = SessionId('performance-failure')
 
-    await ctx.theater.create({ performanceId: sourceId, presetId: 'two-character-gomoku' })
+    await ctx.theater.create({ performanceId: sourceId, presetId: 'two-character-gomoku', cwd: FIXTURES })
     await expect(ctx.theater.whenIdle(sourceId)).rejects.toThrow('scripted Character failure')
 
     const failed = ctx.theater.read(sourceId)
     const session = ctx.sessions.get(sourceId)!
-    expect(failed.status).toBe('failed')
+    expect(failed).toMatchObject({ phase: 'failed', activity: 'idle' })
     expect(session.events.at(-1)).toMatchObject({
       type: 'theater/segment-ended',
       data: { characterId: 'black', outcome: 'error' },
@@ -391,7 +500,7 @@ describe('Performance Theater', () => {
     })
     await ctx.theater.whenIdle(childId)
     expect(ctx.theater.read(childId)).toMatchObject({
-      status: 'completed',
+      phase: 'completed',
       stages: { board1: { state: { winner: 'black', moveNumber: 5 } } },
     })
   })
@@ -411,7 +520,7 @@ describe('Performance Theater', () => {
           defaultPlan,
         )
       }, { persistenceRoot })
-      await writer.theater.create({ performanceId, presetId: 'two-character-gomoku' })
+      await writer.theater.create({ performanceId, presetId: 'two-character-gomoku', cwd: FIXTURES })
       await expect(writer.theater.whenIdle(performanceId)).rejects.toThrow('writer stopped')
       await writer.fiber.dispose()
 
@@ -421,7 +530,7 @@ describe('Performance Theater', () => {
 
       const resumed = reader.theater.read(performanceId)
       expect(resumed).toMatchObject({
-        status: 'completed',
+        phase: 'completed',
         stages: { board1: { state: { winner: 'black', moveNumber: 5 } } },
       })
       const performance = reader.sessions.get(performanceId)!
@@ -437,11 +546,11 @@ describe('Performance Theater', () => {
     }
   })
 
-  it('keeps historical reads available while refusing incompatible roster, Character Tool plan, or Stage config', async () => {
+  it('keeps historical reads available while refusing incompatible Character or Stage config', async () => {
     const original = {
       characters: [
-        { id: 'black', color: 'black' as const, read: true },
-        { id: 'white', color: 'white' as const, read: false },
+        { id: 'black', systemPrompt: 'You are black.', color: 'black' as const, read: true },
+        { id: 'white', systemPrompt: 'You are white.', color: 'white' as const, read: false },
       ],
       boardSize: 3,
     }
@@ -461,8 +570,22 @@ describe('Performance Theater', () => {
         },
       },
       {
+        name: 'Character System Prompt',
+        current: {
+          characters: [
+            { ...original.characters[0]!, systemPrompt: 'You are changed black.' },
+            original.characters[1]!,
+          ],
+          boardSize: 3,
+        },
+      },
+      {
         name: 'Stage config',
         current: { characters: original.characters, boardSize: 4 },
+      },
+      {
+        name: 'auto advance',
+        current: { ...original, autoAdvance: false },
       },
     ] as const
 
@@ -478,9 +601,9 @@ describe('Performance Theater', () => {
           presetRoot,
           defaultPreset: 'compat',
         })
-        await writer.theater.create({ performanceId, presetId: 'compat' })
+        await writer.theater.create({ performanceId, presetId: 'compat', cwd: FIXTURES })
         await writer.theater.whenIdle(performanceId)
-        expect(writer.theater.read(performanceId).status).toBe('completed')
+        expect(writer.theater.read(performanceId).phase).toBe('completed')
         await writer.fiber.dispose()
 
         await writeCompatibilityPresets(presetRoot, scenario.current)
@@ -491,7 +614,7 @@ describe('Performance Theater', () => {
         })
         const historical = await reader.theater.resume({ performanceId })
 
-        expect(historical.status, scenario.name).toBe('incompatible')
+        expect(historical.phase, scenario.name).toBe('incompatible')
         expect(historical.characters, scenario.name).toEqual({
           black: characterSessionId(performanceId, 'black'),
           white: characterSessionId(performanceId, 'white'),
@@ -511,20 +634,30 @@ describe('Performance Theater', () => {
       .rejects.toThrow(/waiting for theater/)
 
     const ctx = await setup()
+    await expect(ctx.agentPresets.standingKeyFor('missing-system-prompt'))
+      .rejects.toThrow('must declare a non-empty System Prompt')
     await expect(ctx.theater.create({
       performanceId: SessionId('performance-not-theater'),
       presetId: 'not-theater',
+      cwd: FIXTURES,
     })).rejects.toThrow('exactly one Theater Director; found 0')
     await expect(ctx.theater.create({
       performanceId: SessionId('performance-duplicate-theater'),
       presetId: 'duplicate-theater',
+      cwd: FIXTURES,
     })).rejects.toThrow('exactly one Theater Director; found 2')
 
+    await expect(ctx.theater.create({
+      performanceId: SessionId('performance-empty-cwd'),
+      presetId: 'complete-theater',
+      cwd: '',
+    })).rejects.toThrow('Performance cwd must be non-empty')
+
     const completedId = SessionId('performance-director-complete')
-    await ctx.theater.create({ performanceId: completedId, presetId: 'complete-theater' })
+    await ctx.theater.create({ performanceId: completedId, presetId: 'complete-theater', cwd: FIXTURES })
     await ctx.theater.whenIdle(completedId)
     expect(ctx.theater.read(completedId)).toMatchObject({
-      status: 'completed',
+      phase: 'completed',
       stages: { board1: { completed: false, state: { isFinished: false } } },
     })
     expect(ctx.sessions.get(completedId)?.events.some(event =>
@@ -541,9 +674,9 @@ describe('Performance Theater', () => {
     const firstId = SessionId('performance-stage-first')
     const secondId = SessionId('performance-stage-second')
 
-    await ctx.theater.create({ performanceId: firstId, presetId: 'two-character-gomoku' })
+    await ctx.theater.create({ performanceId: firstId, presetId: 'two-character-gomoku', cwd: FIXTURES })
     await ctx.theater.whenIdle(firstId)
-    await ctx.theater.create({ performanceId: secondId, presetId: 'two-character-gomoku' })
+    await ctx.theater.create({ performanceId: secondId, presetId: 'two-character-gomoku', cwd: FIXTURES })
     await ctx.theater.whenIdle(secondId)
 
     expect(ctx.theater.read(firstId).stages.board1?.state).toMatchObject({

@@ -32,9 +32,10 @@ for the direct Agent and Theater Performance lifecycles.
 
 The Theater preset gives black `read_board` plus a color-bound
 `place_stone(x, y)`, and gives white only its color-bound `place_stone`. Theater
-materializes those ordinary Tools against the Performance-owned board; the
-Tools do not inspect Character or owner Session IDs. Board reads stay in the
-Character Session without a Stage Op. Accepted placements call
+also applies each Character's preset-declared System Prompt and materializes
+those ordinary Tools against the Performance-owned board; the Tools do not
+inspect Character or owner Session IDs. Board reads stay in the Character
+Session without a Stage Op. Accepted placements call
 `concludeTurn()`; rejected placements remain in the same Character turn for
 retry.
 
@@ -86,6 +87,25 @@ pnpm dsh web
 Choose **Gomoku** for the direct Agent mode. Two-Character Gomoku is
 created through `ctx.theater` with preset ID `two-character-gomoku`; it does not
 pretend the Performance Session is an Agent conversation.
+
+To smoke-test one Performance without Web, install the same three bundles in
+the `headless` profile, copy the presets as above, then replace DSH's ordinary
+one-Agent runner with the supplied patch:
+
+```sh
+cd ../deepseek-harness
+pnpm dsh plugin --profile headless add \
+  link:../dsh-theater-new/packages/stage \
+  link:../dsh-theater-new/packages/theater \
+  link:../dsh-theater-new/packages/theater-gomoku
+pnpm dsh --profile headless \
+  --patch ../dsh-theater-new/packages/theater-gomoku/headless.cordis.patch.yml
+```
+
+The headless runner uses the ordinary two-Character preset, disables automatic
+advancement when its first Character Segment starts, and exits after that
+Segment plus three explicit advances settle. The command prints the resulting
+Performance read as JSON, including Stage state and Character Session IDs.
 
 Remove the local bundles when they are no longer needed:
 

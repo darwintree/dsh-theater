@@ -25,7 +25,7 @@ The durable root and public entry point of one Performance branch. It is not dri
 _Avoid_: Shared transcript, Agent Session
 
 **Character Session**:
-The Agent-backed Session containing one Character's own history within a Performance branch. Its bare Agent receives the Tool list assembled by the Performance. It has no independent preset or fork operation; a Performance Fork derives the required Character Sessions together.
+The Agent-backed Session containing one Character's own history within a Performance branch. Its bare Agent receives the System Prompt and Tool list assembled by the Performance. It has no independent preset or fork operation; a Performance Fork derives the required Character Sessions together.
 _Avoid_: Performance Session, Shared transcript
 
 **Character Segment**:
@@ -33,8 +33,20 @@ One Theater-managed invocation interval in which a Character Agent Loop acts wit
 _Avoid_: Character Session, Director invocation
 
 **Theater Main Loop**:
-The long-lived Theater-owned main loop for a Performance. At each Director Point it consumes one Director Decision: executing and settling an action before repeating, or completing the Performance.
+The Theater-owned serial driver for a Performance. At each Director Point it evaluates one Director Decision, completing immediately or dispatching an action when automatic advancement or an explicit advancement permits it.
 _Avoid_: Theater Driver, Agent Loop, Director
+
+**Performance Phase**:
+The lifecycle classification of a Performance as active, completed, failed, or incompatible, independent of whether its Main Loop is currently working.
+_Avoid_: Main Loop Activity, Character status
+
+**Main Loop Activity**:
+The process-local running or idle state of a Performance's Main Loop. Idle means no Director Decision or Character Segment is currently executing; it does not mean the Performance is complete.
+_Avoid_: Performance Phase, Director Decision
+
+**Automatic Advancement**:
+Permission for the Theater Main Loop to dispatch successive Director actions without an explicit advancement at each Director Point. It never suppresses a Director's completion decision.
+_Avoid_: Director Decision, round limit
 
 **Director**:
 The reentrant liveness decision construct consulted by the Theater Main Loop at a Director Point. It derives one Director Decision from readable durable state without owning the Main Loop, executing Character work, managing durable orchestration boundaries, or retaining control state across decisions.

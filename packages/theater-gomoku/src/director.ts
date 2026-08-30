@@ -4,7 +4,7 @@ import { formatGomokuCoordinate } from './state.js'
 import type { GomokuState } from './types.js'
 
 export interface Config {
-  stage: string
+  readonly stage: string
 }
 
 export const name = '@darwintree/dsh-theater-gomoku/director'

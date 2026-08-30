@@ -1,0 +1,17 @@
+# Replace DSH's ordinary one-Agent headless app with one Performance smoke run.
+- id: headless-startup
+  disabled: true
+
+- id: headless-runner
+  disabled: true
+
+- insert:
+    - id: agent-presets
+      name: '@deepseek-ai/dsh-agent-presets'
+      config:
+        default: two-character-gomoku
+
+    - id: theater-headless-runner
+      name: '@darwintree/dsh-theater/headless'
+      config:
+        presetId: two-character-gomoku

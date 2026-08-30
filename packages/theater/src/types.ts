@@ -10,6 +10,7 @@ export interface TheaterToolDeclaration {
 
 export interface TheaterCharacterContribution {
   readonly id: string
+  readonly systemPrompt: string
   readonly tools: readonly TheaterToolDeclaration[]
 }
 
@@ -36,6 +37,7 @@ export interface TheaterConfiguredTool {
 
 export interface TheaterConfiguredCharacter {
   readonly id: string
+  readonly systemPrompt: string
   readonly tools: readonly TheaterConfiguredTool[]
 }
 
@@ -65,6 +67,7 @@ export type Director = (context: DirectorContext) => Promise<DirectorDecision>
 
 export interface TheaterConfigured {
   readonly presetId: string
+  readonly autoAdvance: boolean
   readonly characters: readonly TheaterConfiguredCharacter[]
   readonly stages: readonly StageConfigured[]
 }
@@ -89,12 +92,16 @@ declare module '@deepseek-ai/dsh-session/types' {
   }
 }
 
-export type PerformanceRuntimeStatus = 'running' | 'completed' | 'failed' | 'incompatible'
+export type PerformancePhase = 'active' | 'completed' | 'failed' | 'incompatible'
+export type PerformanceActivity = 'idle' | 'running'
 
 export interface PerformanceRead {
   readonly performanceId: SessionId
   readonly presetId: string
-  readonly status: PerformanceRuntimeStatus
+  readonly cwd: string
+  readonly phase: PerformancePhase
+  readonly activity: PerformanceActivity
+  readonly autoAdvance: boolean
   readonly error?: string
   readonly characters: Readonly<Record<string, SessionId>>
   readonly stages: Readonly<Record<string, {
@@ -112,6 +119,7 @@ export interface PerformanceRead {
 export interface CreatePerformanceInput {
   readonly performanceId: SessionId
   readonly presetId: string
+  readonly cwd: string
 }
 
 export interface ResumePerformanceInput {

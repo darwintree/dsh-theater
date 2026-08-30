@@ -13,6 +13,10 @@
     "./preset": {
       "types": "./dist/preset.d.ts",
       "default": "./dist/preset.js"
+    },
+    "./headless": {
+      "types": "./dist/headless.d.ts",
+      "default": "./dist/headless.js"
     }
   },
   "files": ["dist", "cordis.patch.yml", "README.md"],
@@ -30,6 +34,7 @@
     "@deepseek-ai/dsh-scope": "*",
     "@deepseek-ai/dsh-session": "*",
     "@deepseek-ai/dsh-session-persistence": "*",
+    "@deepseek-ai/dsh-system-prompt": "*",
     "@deepseek-ai/dsh-tools": "*",
     "@darwintree/dsh-stage": "*"
   },

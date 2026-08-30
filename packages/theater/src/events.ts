@@ -67,7 +67,7 @@ export function analyze(events: readonly SessionEvent[]): DurableAnalysis {
   for (const event of events) {
     if (event.type === 'theater/configured') {
       if (configured !== undefined) throw new Error('Performance has multiple theater/configured events')
-      configured = event.data
+      configured = { ...event.data, autoAdvance: event.data.autoAdvance ?? true }
     } else if (event.type === 'theater/segment-started') {
       if (configured === undefined) throw new Error('Character Segment started before Performance configuration')
       stack.push(event.data.characterId)

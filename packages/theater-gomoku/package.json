@@ -23,7 +23,7 @@
       "default": "./dist/theater.js"
     }
   },
-  "files": ["dist", "preset", "presets", "cordis.patch.yml", "README.md"],
+  "files": ["dist", "preset", "presets", "cordis.patch.yml", "headless.cordis.patch.yml", "README.md"],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
