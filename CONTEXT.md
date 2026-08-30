@@ -5,81 +5,59 @@ Theater provides durable game stages in which an Agent can act under game-specif
 ## Language
 
 **Theater**:
-The composition layer that assembles a Performance, its Director, Characters, Sessions, and Stages, owns the Performance's Main Loop, and manages their durable boundaries. Stages own domain terminal facts; the Director owns Performance completion.
+The assembly and orchestration module that creates, drives, resumes, and forks Performances. It assembles Characters, Stages, and a Director, owns the Theater Main Loop, and manages the durable boundaries of Character Turns and forks. The Director decides the next action and Performance completion; Stages own domain state and rules; Tools submit Stage Ops.
 _Avoid_: Scheduler, game rules engine
 
 **Stage**:
-A durable game context owned by one Session and named by one Stage ID. Its state can be restored by replaying its recorded Stage Ops.
+A durable environment owned by a Session and named by a Stage ID. Agents interact with it through Tools. A successful interaction that advances its state produces a Stage Op, and replaying its configuration and Stage Ops restores it. Stage is independent of Theater and may be used directly by ordinary Agents or assembled by Theater.
 _Avoid_: State Machine, Match
 
-**Stage ID**:
-The stable name used to select one Stage within its owning Session. A Stage is identified by the pair of its owner Session and Stage ID.
-_Avoid_: Agent ID, State Machine kind
+**State Machine**:
+A stateful but deterministic transition model internal to a Stage. Its transitions receive only Stage Ops and are semantically equivalent to the pure function `(current state, Stage Op) -> (next state, result)`. Apart from initialization configuration and Stage Ops, it observes no external system state and is unaware of Agents, Tools, Sessions, Theater, persistence, or the runtime environment. Reads only observe its current state and do not cause transitions.
+_Avoid_: Stage
 
 **Stage Op**:
-The durable record of one operation that successfully advanced a Stage. It may carry an observational outcome, but replay is governed by the Op itself; rejected requests and runtime failures are not Stage Ops. Stage Ops are opaque to Characters.
+A canonical input that drives one deterministic transition of a Stage's State Machine. Given the same current state and Stage Op, the State Machine must produce the same next state. Accepted Stage Ops are persisted in order and replayed from the initial configuration to restore the Stage. A Tool translates an Agent interaction into a candidate Stage Op; a rejected candidate causes no transition and is not persisted as a Stage Op. Stage Ops are opaque to Characters.
 _Avoid_: Tool call, rejected request, transient command
 
-**Performance Session**:
-The durable root and public entry point of one Performance branch. It is not driven by an Agent Loop.
+**Performance / Performance Session**:
+A Performance is a special DSH Session that is not driven by an Agent Loop. `Performance` is the product term; `Performance Session` is the full term when emphasizing its Session identity, persistence, or fork behavior.
 _Avoid_: Shared transcript, Agent Session
 
+**Performance Preset**:
+A DSH Preset that assembles a Performance by declaring its Stages, Characters, and Director.
+
+**Character**:
+An Agent scheduled within a Performance. That Agent's Session is called a Character Session.
+
 **Character Session**:
-The Agent-backed Session containing one Character's own history within a Performance branch. Its bare Agent receives the System Prompt and Tool list assembled by the Performance. It has no independent preset or fork operation; a Performance Fork derives the required Character Sessions together.
+The Session of a Character. It stores that Character's Agent history, is created, resumed, and forked with the Performance, and has no independent fork semantics.
 _Avoid_: Performance Session, Shared transcript
 
-**Character Segment**:
-One Theater-managed invocation interval in which a Character Agent Loop acts within a Performance. It is a durable orchestration boundary, not a public child resource. Segments have no stable identity: their durable start and end facts are paired by strict stack order and Character. A Segment ends only after its Character work and all Theater-managed settlement are durable; no separate end-reaction phase follows it.
+**Character Turn**:
+One ordinary DSH Agent Turn executed by a Character and triggered by a Director `act` Decision. After the Turn and Theater-managed settlement complete, the Performance enters the next Director Point.
 _Avoid_: Character Session, Director invocation
 
 **Theater Main Loop**:
-The Theater-owned serial driver for a Performance. At each Director Point it evaluates one Director Decision, completing immediately or dispatching an action when automatic advancement or an explicit advancement permits it.
+The Theater-owned control loop attached to a Performance. At each Director Point it requests one Director Decision and executes it by starting a Character Turn or completing the Performance. It owns execution and serial settlement, but not the domain judgment of which Character acts next or when the Performance completes.
 _Avoid_: Theater Driver, Agent Loop, Director
 
-**Performance Phase**:
-The lifecycle classification of a Performance as active, completed, failed, or incompatible, independent of whether its Main Loop is currently working.
-_Avoid_: Main Loop Activity, Character status
-
-**Main Loop Activity**:
-The process-local running or idle state of a Performance's Main Loop. Idle means no Director Decision or Character Segment is currently executing; it does not mean the Performance is complete.
-_Avoid_: Performance Phase, Director Decision
-
 **Automatic Advancement**:
-Permission for the Theater Main Loop to dispatch successive Director actions without an explicit advancement at each Director Point. It never suppresses a Director's completion decision.
+Allows the Theater Main Loop to execute `act` Decisions automatically at each Director Point without an external call to `advance()`. It never prevents the Director from returning `complete`.
 _Avoid_: Director Decision, round limit
 
 **Director**:
-The reentrant liveness decision construct consulted by the Theater Main Loop at a Director Point. It derives one Director Decision from readable durable state without owning the Main Loop, executing Character work, managing durable orchestration boundaries, or retaining control state across decisions.
+The liveness decision component for a Performance. The Theater Main Loop calls it at each Director Point, and it uses the currently readable state to decide whether one Character acts with an Instruction or the Performance completes. It neither executes Characters, owns the Main Loop, nor persists orchestration boundaries; it only decides whether work remains and what that work is.
 _Avoid_: Theater Main Loop, Agent Loop, Character
 
 **Director Decision**:
-One liveness result from the Director: perform one Character action or complete the Performance. Completion is a Performance interpretation of domain facts, not a replacement for a Stage's terminal state.
+A one-time decision returned by the Director at a Director Point. It is either `act`, naming one Character and its Instruction, or `complete`, completing the Performance. The decision is not persisted; a fork computes a fresh decision in the new Performance.
 _Avoid_: Stage result, Character turn
 
 **Director Point**:
-A durable Performance position at which the Theater Main Loop may ask the Director for the next action. It is any Performance Session prefix whose durable Character Segment stack is empty: initially after the Performance, its Characters, and its Stages are created and flushed, and subsequently after settled Character Segments. At every point all Character Agent Loops are idle and their Sessions are flushed.
+A settled position in a Performance where no Character Turn is executing. The Theater Main Loop may call the Director there, and a Performance may be forked only there. It is a semantic position rather than an event: the initial Director Point exists after Performance creation settles, and each settled Character Turn produces the next Director Point.
 _Avoid_: Character turn, arbitrary event boundary
 
 **Instruction**:
-Opaque input supplied to a Character for one action and persisted only in that Character's Session. A Performance Session does not copy its content.
+The input to one Character Turn. It enters only the Character Session.
 _Avoid_: Character history
-
-**Performance Fork**:
-A new Performance branch derived from a Director Point in another Performance branch, together with the corresponding Character Sessions. The child Theater Main Loop asks the Director for a fresh decision from that point; forking is exposed only at the Performance level.
-_Avoid_: Character Fork, transcript copy
-
-**Gomoku Stage**:
-A Stage containing one Gomoku board and enforcing its move, turn, win, and draw rules independently of who controls each color.
-_Avoid_: Gomoku participant, Character Session
-
-**Single-Agent Gomoku**:
-A non-Theater Gomoku mode in which the User directs black moves and one Agent chooses white moves against the same Gomoku Stage.
-_Avoid_: Two-Character Gomoku
-
-**Two-Character Gomoku**:
-A Gomoku Performance in which separate black and white Character Sessions take turns against the same Gomoku Stage.
-_Avoid_: Single-Agent Gomoku, shared Character Session
-
-**Stone Color**:
-The black or white value placed on the Gomoku board. It determines turn order but is not a DSH Character or Agent identity.
-_Avoid_: Character, Agent role

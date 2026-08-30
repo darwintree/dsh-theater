@@ -4,13 +4,13 @@ This document is the shared home for the repository's composition model. It
 records how independently provided modules are selected, connected, and scoped
 by presets. New composition rules should extend this document.
 
-## Stage and Toolset modules
+## Stage and Tool modules
 
 ### User story
 
 1. Module S declares one or more Stages.
-2. Module T declares a Toolset that can operate a Stage.
-3. A preset composes the two modules and binds the Toolset to a declared Stage.
+2. Module T declares one or more Tools that can operate a Stage.
+3. A preset composes the two modules and binds those Tools to a declared Stage.
 
 The preset is the composition root. A Stage ID belongs to that composition:
 Module S declares it, Module T consumes it as a reference, and neither module
@@ -41,18 +41,8 @@ For direct Single-Agent Gomoku, the composition is:
 declaration, like a foreign key; it is not a second source of Stage
 configuration.
 
-The Toolset module accepts the reference through its plugin configuration and
-binds every Tool it registers to that Stage:
-
-```ts
-interface Config {
-  stage: string
-}
-
-export function apply(ctx: Context, config: Config): void {
-  ctx.tools.register(createGomokuTool(ctx, config.stage))
-}
-```
+The Tool module accepts the reference through its plugin configuration and
+binds every Tool it registers to that Stage.
 
 ### Responsibilities
 
@@ -66,17 +56,16 @@ Module T owns:
 
 - model-facing Tool schemas and results;
 - translation from Tool calls to canonical Stage Ops;
-- registration of the Toolset in its target Agent or Character scope.
+- registration of the Tools in their target Agent or Character scope.
 
 The preset owns:
 
 - selecting Modules S and T;
-- choosing which declared Stage the Toolset operates;
+- choosing which declared Stage the Tools operate;
 - keeping the binding explicit when more than one Stage exists.
 
 The State Machine remains independent of Tool schemas, Agent scopes, and Tool
-visibility. Tool exposure is assembly state and is not persisted in
-`stage/configured`; only the resolved State Machine configuration is durable.
+visibility.
 
 ### Resolution flow
 
@@ -84,8 +73,8 @@ visibility. Tool exposure is assembly state and is not persisted in
 Preset resolution
   -> Module S declares board1
   -> Module T receives stage: board1
-  -> Module T registers a Toolset bound to board1
-  -> an Agent joins the preset scope and sees that Toolset
+  -> Module T registers its Tools bound to board1
+  -> an Agent joins the preset scope and sees those Tools
   -> a Tool call resolves board1 in the Agent's declaration scope
   -> the Stage Op is written to the Stage's owning Session
 ```
@@ -136,12 +125,8 @@ A Tool receives a bound Stage handle; it does not know the Performance,
 Character, owner Session, or Session ID convention.
 
 This keeps two Performances isolated even when they use the same preset and
-Stage IDs. Resume and fork rematerialize Tools against the target Performance
-Session. Character Sessions do not mount separate Agent Presets.
+Stage IDs. Character Sessions do not mount separate Agent Presets.
 
-`autoAdvance` defaults to `true` and is stored in the durable Performance
-configuration. With `false`, Theater settles at each Director Point until a
-caller grants one Character Segment through `ctx.theater.advance()`. A caller
-may change the current runtime activation through `setAutoAdvance()` without
-mutating the preset or the Performance Session; resume and fork establish the
-preset's durable default again.
+`autoAdvance` defaults to `true`. With `false`, Theater waits at each Director
+Point until a caller grants one Character Turn through `ctx.theater.advance()`.
+The current runtime may be switched with `setAutoAdvance()`.

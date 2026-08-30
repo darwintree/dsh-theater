@@ -1,26 +1,23 @@
 # dsh-theater-gomoku
 
-A Gomoku State Machine with two modes:
+A Gomoku Stage integration with two composition modes:
 
 - `preset/` keeps the direct Single-Agent game.
 - `presets/` provides a Theater Performance with independent black and white
   Character Sessions and one Performance-owned board.
 
-The State Machine owns live board state and the deterministic domain rules
-(integer coordinates, bounds, occupancy, black/white rotation, win and draw
-detection, terminal rejection). The Stage Service owns persistence; the same
-canonical place-stone Op drives live transitions and replay.
+The State Machine owns the board and Gomoku rules. The Stage Service owns its
+persistence and replay.
 
 The Gomoku host plugin registers the `gomoku` State Machine factory. The
 Single-Agent preset loads the scoped `/single-agent` plugin, which exposes
 `place_stone` only to Agents using that preset, and declares a `board1` Stage
 backed by the `gomoku` factory. The preset passes `stage: board1` to bind the
-Toolset to that declaration. The tool resolves it through the calling Agent's
-preset scope, lazily opens the Stage in the Agent Session,
-applies one Op, and renders the complete board, winner, and completion state.
+Tools to that declaration. The Tools open the Stage in the Agent Session and
+render the board after each move.
 The user plays black and the Agent plays white; the Agent calls the tool once
 for the user's directed black move and again for its own chosen white move
-before replying. The tool does not call `concludeTurn()`.
+before replying.
 
 ```ts
 await ctx.plugin(StageService)   // provides ctx.stages
@@ -33,11 +30,7 @@ for the direct Agent and Theater Performance lifecycles.
 The Theater preset gives black `read_board` plus a color-bound
 `place_stone(x, y)`, and gives white only its color-bound `place_stone`. Theater
 also applies each Character's preset-declared System Prompt and materializes
-those ordinary Tools against the Performance-owned board; the Tools do not
-inspect Character or owner Session IDs. Board reads stay in the Character
-Session without a Stage Op. Accepted placements call
-`concludeTurn()`; rejected placements remain in the same Character turn for
-retry.
+those Tools against the Performance-owned board.
 
 ## Presets
 
@@ -85,8 +78,7 @@ pnpm dsh web
 ```
 
 Choose **Gomoku** for the direct Agent mode. Two-Character Gomoku is
-created through `ctx.theater` with preset ID `two-character-gomoku`; it does not
-pretend the Performance Session is an Agent conversation.
+created through `ctx.theater` with preset ID `two-character-gomoku`.
 
 To smoke-test one Performance without Web, install the same three bundles in
 the `headless` profile, copy the presets as above, then replace DSH's ordinary
@@ -102,10 +94,8 @@ pnpm dsh --profile headless \
   --patch ../dsh-theater-new/packages/theater-gomoku/headless.cordis.patch.yml
 ```
 
-The headless runner uses the ordinary two-Character preset, disables automatic
-advancement when its first Character Segment starts, and exits after that
-Segment plus three explicit advances settle. The command prints the resulting
-Performance read as JSON, including Stage state and Character Session IDs.
+The headless runner advances four Character Turns and prints the resulting
+Performance read as JSON.
 
 Remove the local bundles when they are no longer needed:
 
@@ -115,6 +105,3 @@ pnpm dsh plugin --profile web remove \
   @darwintree/dsh-theater \
   @darwintree/dsh-stage
 ```
-
-Out of scope: user input, Projection, parallel Tool Calls, and independent
-Character forks.
