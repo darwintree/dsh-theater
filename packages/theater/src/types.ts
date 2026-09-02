@@ -1,5 +1,5 @@
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { JsonValue, SessionId } from '@deepseek-ai/dsh-session'
+import type { JsonValue, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { InteractionResult, StageConfigured } from '@darwintree/dsh-stage'
 
@@ -20,14 +20,30 @@ export interface TheaterStageHandle {
   interact(op: unknown): Promise<InteractionResult>
 }
 
+/** One settled Character Turn reconstructed from its durable Segment. */
+export interface CharacterTurnRead {
+  readonly characterId: string
+  readonly outcome: 'completed' | 'aborted' | 'error'
+  readonly events: readonly SessionEvent[]
+}
+
+/** Performance-bound capabilities handed to a Character Tool. */
+export interface TheaterToolContext {
+  readonly characterId: string
+  readonly characterIds: readonly string[]
+  stage(stageId: string): TheaterStageHandle
+  currentTurnKind(): 'top-level' | 'nested'
+  runNestedTurn(
+    characterId: string,
+    instruction: readonly ContentBlock[],
+  ): Promise<CharacterTurnRead>
+}
+
 /** Host-registered constructor for one preset-declared Character Tool. */
 export interface TheaterToolFactory {
   readonly kind: string
   resolveConfig(input: unknown): JsonValue
-  create(
-    config: JsonValue,
-    stage: (stageId: string) => TheaterStageHandle,
-  ): ToolDefinition
+  create(config: JsonValue, context: TheaterToolContext): ToolDefinition
 }
 
 export interface TheaterConfiguredTool {
@@ -60,6 +76,7 @@ export type DirectorDecision =
 /** Read-only capabilities available for one liveness decision. */
 export interface DirectorContext {
   readStage(stageId: string): JsonValue
+  readSettledTurns(): readonly CharacterTurnRead[]
 }
 
 /** Decide whether to act or complete from current durable state. */

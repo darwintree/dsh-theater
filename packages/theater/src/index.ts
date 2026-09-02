@@ -3,6 +3,7 @@ export { THEATER_REQUIRED_EVENT_TYPES, registerTheaterSessionEventTypes } from '
 export { TheaterService, TheaterService as default } from './service.js'
 export type {
   CreatePerformanceInput,
+  CharacterTurnRead,
   Director,
   DirectorAction,
   DirectorContext,
@@ -21,5 +22,6 @@ export type {
   TheaterSegmentStarted,
   TheaterStageHandle,
   TheaterToolDeclaration,
+  TheaterToolContext,
   TheaterToolFactory,
 } from './types.js'

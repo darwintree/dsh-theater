@@ -2,15 +2,25 @@
 
 `ctx.theater` composes durable multi-Character Performances from one preset. A
 Performance Session is the public root and is not driven by an Agent Loop. The
-preset declares Stages, each Character's complete Tool creation plan, and
+preset may declare Stages, declares each Character's complete Tool creation plan, and
 exactly one domain-owned Director. Theater combines those declarations when it
 creates, resumes, or forks a Performance.
 
 Theater owns the Performance Main Loop. At each Director Point it asks the
 Director whether to run one Character Turn or complete the Performance.
 Character Turns run serially in separate Character Sessions, while their Tools
-operate on Stages owned by the Performance Session. A Performance may be forked
-at a Director Point.
+may operate on Stages owned by the Performance Session. Stage-free Performances
+use the same Main Loop and may be resumed or forked at a Director Point.
+
+Directors can call `readSettledTurns()` to read top-level Character Turns in
+Performance order. Each read contains `{ characterId, outcome, events }` and is
+reconstructed from durable Segment watermarks; nested Turns are omitted.
+
+Theater Tool factories receive a `TheaterToolContext`. It retains `stage(id)`
+and exposes the bound Character roster, `currentTurnKind()`, and
+`runNestedTurn()`. Nested Turns are durable LIFO Segments, bypass the Director,
+and return the same settled Turn read while the calling Character's ReAct Turn
+remains open.
 
 ## Usage
 

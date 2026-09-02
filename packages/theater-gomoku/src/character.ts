@@ -87,8 +87,8 @@ export const gomokuReadBoardToolFactory: TheaterToolFactory = {
   resolveConfig(input) {
     return readConfig(input) as JsonValue
   },
-  create(config, resolveStage) {
-    const stage = resolveStage(readConfig(config).stage)
+  create(config, context) {
+    const stage = context.stage(readConfig(config).stage)
     return defineTool({
       name: 'read_board',
       description: 'Read the complete authoritative Gomoku board and current game state.',
@@ -109,9 +109,9 @@ export const gomokuPlaceStoneToolFactory: TheaterToolFactory = {
   resolveConfig(input) {
     return placeConfig(input) as JsonValue
   },
-  create(config, resolveStage) {
+  create(config, context) {
     const bound = placeConfig(config)
-    const stage = resolveStage(bound.stage)
+    const stage = context.stage(bound.stage)
     return defineTool({
       name: 'place_stone',
       description: `Place one ${bound.color} stone at zero-based coordinates. Color is fixed by this Character.`,

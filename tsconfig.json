@@ -5,6 +5,7 @@
     { "path": "./packages/llm-mock" },
     { "path": "./packages/stage" },
     { "path": "./packages/theater-gomoku" },
+    { "path": "./packages/theater-role-play" },
     { "path": "./packages/theater" }
   ]
 }

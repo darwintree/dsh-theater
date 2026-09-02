@@ -34,6 +34,7 @@ import {
 } from './configuration.js'
 import { analyze, registerTheaterSessionEventTypes, settlement } from './events.js'
 import type {
+  CharacterTurnRead,
   CreatePerformanceInput,
   Director,
   ForkPerformanceInput,
@@ -42,9 +43,10 @@ import type {
   PerformanceRead,
   ResumePerformanceInput,
   TheaterCharacterContribution,
-  TheaterConfiguredCharacter,
   TheaterConfigured,
+  TheaterConfiguredCharacter,
   TheaterSegmentEnded,
+  TheaterToolContext,
   TheaterToolFactory,
 } from './types.js'
 
@@ -83,6 +85,11 @@ interface PerformanceRuntime {
   autoAdvance: boolean
   error?: Error
   mainLoop: Promise<void>
+}
+
+interface TurnExecution {
+  readonly read: CharacterTurnRead
+  readonly error?: TheaterSegmentEnded['error']
 }
 
 /** `ctx.theater`: preset-composed Performance creation, driving, reading, resume, and fork. */
@@ -376,6 +383,7 @@ export class TheaterService extends Service {
       try {
         const directorContext = {
           readStage: (stageId: string) => this.ctx.stages.read(runtime.session, stageId),
+          readSettledTurns: () => this.readSettledTurns(runtime),
         }
         while (true) {
           const decision = await contributions.director(directorContext)
@@ -406,10 +414,25 @@ export class TheaterService extends Service {
     characterId: string,
     instruction: readonly ContentBlock[],
   ): Promise<void> {
-    const character = this.requireCharacter(runtime, characterId)
-    const before = character.session.seq
     const open = analyze(runtime.session.events)
     if (open.stack.length !== 0) throw new Error('cannot start a Character Segment while another Segment is open')
+    const { read, error } = await this.runTurn(runtime, characterId, instruction)
+    if (read.outcome !== 'completed') {
+      throw Object.assign(
+        new Error(error?.message ?? `Character ${JSON.stringify(characterId)} failed`),
+        { code: error?.code ?? 'CHARACTER_FAILED' },
+      )
+    }
+  }
+
+  private async runTurn(
+    runtime: PerformanceRuntime,
+    characterId: string,
+    instruction: readonly ContentBlock[],
+  ): Promise<TurnExecution> {
+    const character = this.requireCharacter(runtime, characterId)
+    if (character.status !== 'idle') throw new Error(`Character ${JSON.stringify(characterId)} is already active`)
+    const before = character.session.seq
     runtime.session.append('theater/segment-started', { characterId })
     await runtime.scope.ctx.sessions.flush(runtime.session)
     let ended: Pick<TheaterSegmentEnded, 'outcome' | 'error'>
@@ -443,7 +466,41 @@ export class TheaterService extends Service {
       ...ended,
     })
     await runtime.scope.ctx.sessions.flush(runtime.session)
-    if (actionError !== undefined) throw actionError
+    const events = this.turnEvents(character.session.events.slice(before, characterSessionSeq))
+    if (actionError !== undefined && events.length === 0) throw actionError
+    const read = { characterId, outcome: ended.outcome, events }
+    return ended.error === undefined ? { read } : { read, error: ended.error }
+  }
+
+  private turnEvents(events: readonly SessionEvent[]): readonly SessionEvent[] {
+    const start = events.findIndex(event => event.type === 'turn/start')
+    return start < 0 ? [] : events.slice(start)
+  }
+
+  private readSettledTurns(runtime: PerformanceRuntime): readonly CharacterTurnRead[] {
+    const reads: CharacterTurnRead[] = []
+    const stack: string[] = []
+    const watermarks = new Map<string, number>()
+    for (const event of runtime.session.events) {
+      if (event.type === 'theater/segment-started') {
+        stack.push(event.data.characterId)
+        continue
+      }
+      if (event.type !== 'theater/segment-ended') continue
+      const characterId = stack.pop()
+      if (characterId !== event.data.characterId) {
+        throw new Error(`Character Segment end for ${JSON.stringify(event.data.characterId)} violates LIFO order`)
+      }
+      const session = this.requireCharacter(runtime, characterId).session
+      const before = watermarks.get(characterId) ?? 0
+      const after = event.data.characterSessionSeq
+      const events = this.turnEvents(session.events.slice(before, after))
+      watermarks.set(characterId, after)
+      if (stack.length === 0) {
+        reads.push({ characterId, outcome: event.data.outcome, events })
+      }
+    }
+    return reads
   }
 
   private async resolveContributions(presetId: string): Promise<TheaterContributions> {
@@ -570,7 +627,7 @@ export class TheaterService extends Service {
       order: PERSONA_ORDER,
       text: character.systemPrompt,
     })
-    const stages = new Map(contributions.stages.map(stage => [stage.stageId, stage]))
+    const stages = new Set(contributions.stages.map(stage => stage.stageId))
     const resolveStage = (stageId: string) => {
       if (!stages.has(stageId)) throw new Error(`Stage ${JSON.stringify(stageId)} is not declared by this Performance preset`)
       return {
@@ -578,9 +635,26 @@ export class TheaterService extends Service {
         interact: (op: unknown) => runtime.scope.ctx.stages.interact(runtime.session, stageId, op),
       }
     }
+    const currentTurnKind = (): 'top-level' | 'nested' => {
+      const stack = analyze(runtime.session.events).stack
+      if (stack.at(-1) !== characterId) {
+        throw new Error(`Character ${JSON.stringify(characterId)} has no active Segment`)
+      }
+      return stack.length === 1 ? 'top-level' : 'nested'
+    }
     agentCtx.tools.restrict({ allow: [] })
+    const toolContext: TheaterToolContext = {
+      characterId,
+      characterIds: runtime.configured.characters.map(character => character.id),
+      stage: resolveStage,
+      currentTurnKind,
+      runNestedTurn: async (targetId, instruction) => {
+        currentTurnKind()
+        return (await this.runTurn(runtime, targetId, instruction)).read
+      },
+    }
     for (const tool of character.tools) {
-      agentCtx.tools.register(tool.factory.create(tool.config, resolveStage))
+      agentCtx.tools.register(tool.factory.create(tool.config, toolContext))
     }
   }
 

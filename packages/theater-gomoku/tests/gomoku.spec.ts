@@ -1,7 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import LlmRuntime, { CallId } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -55,7 +55,7 @@ describe('Gomoku tool', () => {
     const agent = await createGomokuAgent(ctx, 'gomoku-tool')
 
     const black = await ctx.tools.execute({
-      callId: CallId('black-1'),
+      callId: ToolCallId('black-1'),
       name: 'place_stone',
       arguments: { color: 'black', x: 7, y: 7 },
       signal: new AbortController().signal,
@@ -71,7 +71,7 @@ describe('Gomoku tool', () => {
       .toMatchObject({ stageId: 'test-board', machine: 'gomoku', version: '1' })
 
     const white = await ctx.tools.execute({
-      callId: CallId('white-1'),
+      callId: ToolCallId('white-1'),
       name: 'place_stone',
       arguments: { color: 'white', x: 8, y: 8 },
       signal: new AbortController().signal,
@@ -94,14 +94,14 @@ describe('Gomoku tool', () => {
     const agent = await createGomokuAgent(ctx, 'gomoku-reject')
 
     await ctx.tools.execute({
-      callId: CallId('r1'),
+      callId: ToolCallId('r1'),
       name: 'place_stone',
       arguments: { color: 'black', x: 0, y: 0 },
       signal: new AbortController().signal,
       agent,
     })
     const occupied = await ctx.tools.execute({
-      callId: CallId('r2'),
+      callId: ToolCallId('r2'),
       name: 'place_stone',
       arguments: { color: 'white', x: 0, y: 0 },
       signal: new AbortController().signal,
@@ -118,7 +118,7 @@ describe('Gomoku tool', () => {
     const ctx = await setupWithAgent()
     const agent = await createGomokuAgent(ctx, 'gomoku-noconclude')
     const result = await ctx.tools.execute({
-      callId: CallId('nc1'),
+      callId: ToolCallId('nc1'),
       name: 'place_stone',
       arguments: { color: 'black', x: 0, y: 0 },
       signal: new AbortController().signal,

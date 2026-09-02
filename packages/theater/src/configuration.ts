@@ -45,7 +45,6 @@ export function resolvedConfiguration(
   nonEmpty(presetId, 'Agent Preset ID')
   if (typeof contributions.autoAdvance !== 'boolean') throw new Error('Theater autoAdvance must be boolean')
   if (contributions.characters.length === 0) throw new Error('Theater preset requires at least one Character contribution')
-  if (contributions.stages.length === 0) throw new Error('Theater preset requires at least one Stage contribution')
   const characterIds = new Set<string>()
   const characters = contributions.characters.map((character) => {
     const id = nonEmpty(character.id, 'Character ID')

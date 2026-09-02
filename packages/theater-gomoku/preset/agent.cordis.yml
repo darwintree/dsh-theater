@@ -8,7 +8,7 @@
           boardSize: 15
           winLength: 5
 - id: gomoku-tools
-  name: '@darwintree/dsh-theater-gomoku/single-agent'
+  name: '../dist/single-agent.js'
   config:
     stage: board1
 - id: persona

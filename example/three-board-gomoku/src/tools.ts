@@ -1,6 +1,6 @@
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { TheaterStageHandle, TheaterToolFactory } from '@darwintree/dsh-theater'
+import type { TheaterStageHandle, TheaterToolContext, TheaterToolFactory } from '@darwintree/dsh-theater'
 import { renderGomokuBoard, type GomokuState } from '@darwintree/dsh-theater-gomoku'
 
 export const MASTER_READ_BOARD_TOOL = 'three-board-gomoku-read-board'
@@ -41,9 +41,9 @@ function parseConfig(input: unknown): { stages: string[] } {
 
 function resolveStages(
   input: JsonValue,
-  resolveStage: (stageId: string) => TheaterStageHandle,
+  context: TheaterToolContext,
 ): TheaterStageHandle[] {
-  return parseConfig(input).stages.map(resolveStage)
+  return parseConfig(input).stages.map(stageId => context.stage(stageId))
 }
 
 function selected(stages: readonly TheaterStageHandle[], game: number): TheaterStageHandle {
@@ -97,8 +97,8 @@ export const masterReadBoardToolFactory: TheaterToolFactory = {
   resolveConfig(input) {
     return parseConfig(input) as JsonValue
   },
-  create(config, resolveStage) {
-    const stages = resolveStages(config, resolveStage)
+  create(config, context) {
+    const stages = resolveStages(config, context)
     return defineTool({
       name: 'read_board',
       description: 'Read one of the three authoritative Gomoku boards by game number.',
@@ -119,8 +119,8 @@ export const masterPlaceStoneToolFactory: TheaterToolFactory = {
   resolveConfig(input) {
     return parseConfig(input) as JsonValue
   },
-  create(config, resolveStage) {
-    const stages = resolveStages(config, resolveStage)
+  create(config, context) {
+    const stages = resolveStages(config, context)
     return defineTool({
       name: 'place_stone',
       description: 'Place one white stone in a game. Game is selected by number; color is fixed to white.',

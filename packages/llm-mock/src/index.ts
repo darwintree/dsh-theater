@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import {
-  CallId,
+  ToolCallId,
   LlmAdapter,
   LlmError,
   type GenerateOptions,
@@ -91,7 +91,7 @@ function chunksFor(response: MockResponse): StreamChunk[] {
       return
     }
 
-    const toolCall = { ...block, id: CallId(block.id) }
+    const toolCall = { ...block, id: ToolCallId(block.id) }
     chunks.push({
       type: 'tool-call-delta',
       index,

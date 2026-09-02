@@ -1,6 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, {
-  CallId,
+  ToolCallId,
   createAssistantMessage,
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
@@ -58,7 +58,7 @@ describe('mock LLM plugin', () => {
       messages: [createAssistantMessage({
         content: [{
           type: 'tool-call',
-          id: CallId('greet-call'),
+          id: ToolCallId('greet-call'),
           name: 'greet',
           arguments: JSON.stringify({ name: 'Ada' }),
         }],

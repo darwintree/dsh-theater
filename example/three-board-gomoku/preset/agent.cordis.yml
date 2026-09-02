@@ -48,7 +48,7 @@
           - factory: three-board-gomoku-place-stone
             params: { stages: [board1, board2, board3] }
 - id: director
-  name: '@darwintree/dsh-theater-example-three-board-gomoku/director'
+  name: '../dist/director.js'
   config:
     master: master
     instructions:
