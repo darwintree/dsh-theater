@@ -10,7 +10,9 @@ import {
   PERCEIVE_OR_RECALL,
   PERCEPTION_RESULT,
   RECOMMEND_NEXT_CHARACTER,
+  THINK,
   VOICE_OVER,
+  WARN,
 } from './tools.js'
 
 interface PresetPrompts {
@@ -26,6 +28,7 @@ interface PresetCharacter {
 }
 
 interface RolePlayPreset {
+  readonly title: string
   readonly common: string
   readonly opening: string
   readonly prompts: PresetPrompts
@@ -54,7 +57,8 @@ function isPresetCharacter(value: unknown): value is PresetCharacter {
 
 function readPreset(): RolePlayPreset {
   const value: unknown = parse(readFileSync(new URL('../preset/v3.yml', import.meta.url), 'utf8'))
-  if (!isRecord(value) || typeof value.common !== 'string'
+  if (!isRecord(value) || typeof value.title !== 'string' || value.title.trim() === ''
+    || typeof value.common !== 'string'
     || typeof value.opening !== 'string' || !isPresetPrompts(value.prompts)
     || !Array.isArray(value.characters)) {
     throw new Error('Invalid Role-play preset')
@@ -67,6 +71,7 @@ function readPreset(): RolePlayPreset {
     throw new Error('Role-play character ids must be unique and cannot be dm')
   }
   return {
+    title: value.title,
     common: value.common,
     opening: value.opening,
     prompts: value.prompts,
@@ -91,27 +96,30 @@ export function apply(ctx: Context): void {
       return `${heading}\n${card}`
     })
     .join('\n\n')
+  ctx.theater.registerTitle(preset.title)
   ctx.theater.registerAutoAdvance(true)
   ctx.theater.registerCharacter({
     id: 'dm',
+    title: `${preset.title} · DM`,
     systemPrompt: [
       section('dm_guidance', preset.prompts.dmGuidance.replaceAll('{characterIds}', characterIds.join('、'))),
       section('common_scene_card', preset.common),
       section('character_cards', cards),
       section('opening', [preset.prompts.openingHeading, preset.opening].join('\n')),
     ].join('\n\n'),
-    tools: [VOICE_OVER, RECOMMEND_NEXT_CHARACTER, PERCEPTION_RESULT, END_PERFORMANCE]
+    tools: [VOICE_OVER, WARN, RECOMMEND_NEXT_CHARACTER, PERCEPTION_RESULT, END_PERFORMANCE]
       .map(factory => ({ factory })),
   })
   for (const { id, card } of preset.characters) {
     ctx.theater.registerCharacter({
       id,
+      title: `${preset.title} · ${id[0]!.toUpperCase()}${id.slice(1)}`,
       systemPrompt: [
         section('character_guidance', preset.prompts.characterGuidance),
         section('common_scene_card', preset.common),
         section('character_card', card),
       ].join('\n\n'),
-      tools: [{ factory: PERCEIVE_OR_RECALL }],
+      tools: [THINK, PERCEIVE_OR_RECALL].map(factory => ({ factory })),
     })
   }
   ctx.theater.registerDirector(createRolePlayDirector())

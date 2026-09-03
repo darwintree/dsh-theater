@@ -7,7 +7,9 @@ import { PERCEIVE_OR_RECALL, projectCharacterTurn } from './projection.js'
 export { PERCEIVE_OR_RECALL } from './projection.js'
 
 export const PERCEPTION_RESULT = 'perception_result'
+export const THINK = 'think'
 export const VOICE_OVER = 'voice_over'
+export const WARN = 'warn'
 export const RECOMMEND_NEXT_CHARACTER = 'recommend_next_character'
 export const END_PERFORMANCE = 'end_performance'
 
@@ -116,14 +118,52 @@ function perceptionResult(turn: CharacterTurnRead): string | undefined {
 
 const noOutput = { schema: { type: 'null' as const }, render: () => [] }
 
+export const thinkToolFactory: TheaterToolFactory = {
+  kind: THINK,
+  resolveConfig: emptyConfig,
+  create() {
+    return defineTool({
+      name: THINK,
+      description: [
+        '记录不可被其他角色感知的内心独白、隐秘动机与考量，作为后续正文言行的因果源头。',
+        '每轮发言开始时必须首先调用；在调用 perceive_or_recall 获取新信息后亦可按需调用。',
+        '本次调用不结束 Character Turn，成功后继续生成公开正文或调用其他工具；严禁在公开正文中直接描写心理。',
+        '思考内容对 DM 可见，对其他普通角色完全保密（其他角色仅能感知你调用了 think）。',
+      ].join(' '),
+      parameters: {
+        thought: {
+          type: 'string',
+          required: true,
+          description: '以角色第一人称展开的内心活动、动机推演、对他人言行的揣度与后续行动考量。',
+        },
+      },
+      output: noOutput,
+      async execute() {
+        return null
+      },
+    })
+  },
+}
+
 export const perceiveOrRecallToolFactory: TheaterToolFactory = {
   kind: PERCEIVE_OR_RECALL,
   resolveConfig: emptyConfig,
   create(_config, context) {
     return defineTool({
       name: PERCEIVE_OR_RECALL,
-      description: '请 DM 裁定一个会影响当前选择的私有感知或个人回忆问题。每个角色回合可调用一次。参数：{ content: string }。',
-      parameters: { content: { type: 'string', required: true } },
+      description: [
+        '向 DM 探查未知的环境细节或检索未明说的个人记忆；严禁擅自捏造或脑补未知事实。',
+        '调用后将由 DM 触发私下裁定并返回结果；本次调用不结束 Character Turn，角色获取结果后继续推进当前发言。',
+        '每个 Character Turn 最多调用一次。',
+        '问题与裁定结果仅当前角色与 DM 可知，其他普通角色仅能感知你调用了该工具。',
+      ].join(' '),
+      parameters: {
+        content: {
+          type: 'string',
+          required: true,
+          description: '以角色视角向 DM 提出的具体环境感知或记忆检索问题。',
+        },
+      },
       output: {
         schema: {
           type: 'object',
@@ -214,6 +254,30 @@ export const voiceOverToolFactory: TheaterToolFactory = {
   },
 }
 
+export const warnToolFactory: TheaterToolFactory = {
+  kind: WARN,
+  resolveConfig: emptyConfig,
+  create(_config, context) {
+    return defineTool({
+      name: WARN,
+      description: '警告一名普通角色的不合规行动。警告会公开给所有普通角色。',
+      parameters: {
+        target: { type: 'string', required: true, description: '需要警告的普通 Character ID。' },
+        reason: { type: 'string', required: true, description: '警告原因。' },
+      },
+      output: noOutput,
+      async execute(args) {
+        exact(args, ['target', 'reason'], WARN)
+        requireDm(context, 'top-level')
+        if (args.target === 'dm' || !context.characterIds.includes(args.target)) {
+          throw new Error('warn.target must name an ordinary Character')
+        }
+        return null
+      },
+    })
+  },
+}
+
 export const recommendNextCharacterToolFactory: TheaterToolFactory = {
   kind: RECOMMEND_NEXT_CHARACTER,
   resolveConfig: emptyConfig,
@@ -261,9 +325,11 @@ export const endPerformanceToolFactory: TheaterToolFactory = {
 }
 
 export const rolePlayToolFactories = [
+  thinkToolFactory,
   perceiveOrRecallToolFactory,
   perceptionResultToolFactory,
   voiceOverToolFactory,
+  warnToolFactory,
   recommendNextCharacterToolFactory,
   endPerformanceToolFactory,
 ] as const

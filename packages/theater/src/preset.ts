@@ -2,8 +2,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { TheaterToolDeclaration } from './types.js'
 
 export interface Config {
+  readonly title?: string
   readonly autoAdvance?: boolean
   readonly characters: Readonly<Record<string, {
+    readonly title?: string
     readonly systemPrompt: string
     readonly tools: readonly TheaterToolDeclaration[]
   }>>
@@ -14,6 +16,10 @@ export const inject = ['theater']
 
 /** Declare the complete Tool list for each Character in one Performance preset. */
 export function apply(ctx: Context, config: Config): void {
+  if (config.title !== undefined && typeof config.title !== 'string') {
+    throw new Error('Theater title must be a string')
+  }
+  if (config.title !== undefined) ctx.theater.registerTitle(config.title)
   if (config.autoAdvance !== undefined && typeof config.autoAdvance !== 'boolean') {
     throw new Error('Theater autoAdvance must be boolean')
   }
@@ -30,11 +36,19 @@ export function apply(ctx: Context, config: Config): void {
     if (typeof character.systemPrompt !== 'string' || character.systemPrompt.trim() === '') {
       throw new Error(`Character ${JSON.stringify(id)} must declare a non-empty System Prompt`)
     }
+    if (character.title !== undefined && typeof character.title !== 'string') {
+      throw new Error(`Character ${JSON.stringify(id)} title must be a string`)
+    }
     for (const [index, tool] of character.tools.entries()) {
       if (typeof tool !== 'object' || tool === null || Array.isArray(tool)) {
         throw new Error(`Tool ${index} for Character ${JSON.stringify(id)} must be an object`)
       }
     }
-    ctx.theater.registerCharacter({ id, systemPrompt: character.systemPrompt, tools: character.tools })
+    ctx.theater.registerCharacter({
+      id,
+      ...(character.title === undefined ? {} : { title: character.title }),
+      systemPrompt: character.systemPrompt,
+      tools: character.tools,
+    })
   }
 }

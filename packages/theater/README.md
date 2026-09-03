@@ -6,6 +6,10 @@ preset may declare Stages, declares each Character's complete Tool creation plan
 exactly one domain-owned Director. Theater combines those declarations when it
 creates, resumes, or forks a Performance.
 
+The preset may also declare a Performance `title` and per-Character titles.
+Theater persists them as Session titles on creation and only fills a missing
+title on resume, so an explicit rename is never overwritten.
+
 Theater owns the Performance Main Loop. At each Director Point it asks the
 Director whether to run one Character Turn or complete the Performance.
 Character Turns run serially in separate Character Sessions, while their Tools

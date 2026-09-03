@@ -3,8 +3,15 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CharacterTurnRead, Director } from '@darwintree/dsh-theater'
 import { successfulToolCalls, type SuccessfulToolCall } from './history.js'
-import { projectCharacterTurn } from './projection.js'
-import { END_PERFORMANCE, RECOMMEND_NEXT_CHARACTER, VOICE_OVER, type VoiceOverSegment } from './tools.js'
+import { PERCEIVE_OR_RECALL, projectCharacterTurn } from './projection.js'
+import {
+  END_PERFORMANCE,
+  RECOMMEND_NEXT_CHARACTER,
+  THINK,
+  VOICE_OVER,
+  WARN,
+  type VoiceOverSegment,
+} from './tools.js'
 
 function text(content: string): readonly ContentBlock[] {
   return [{ type: 'text', text: content }]
@@ -34,6 +41,54 @@ function voiceOvers(events: readonly SessionEvent[]): VoiceOverSegment[] {
   })
 }
 
+function escapeXml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;')
+}
+
+function publicContent(turn: CharacterTurnRead): readonly ContentBlock[] {
+  return turn.events.flatMap(event => event.type === 'assistant/message'
+    ? event.data.message.content.flatMap((block) => {
+        if (block.type === 'text') return [{
+          type: 'text' as const,
+          text: `<character_message character="${escapeXml(turn.characterId)}">\n${escapeXml(block.text)}\n</character_message>`,
+        }]
+        if (block.type === 'tool-call' && (block.name === THINK || block.name === PERCEIVE_OR_RECALL)) {
+          return [{
+            type: 'text' as const,
+            text: `<character_tool character="${escapeXml(turn.characterId)}" name="${block.name}" />`,
+          }]
+        }
+        return []
+      })
+    : [])
+}
+
+function dmContent(events: readonly SessionEvent[], characterId: string): readonly ContentBlock[] {
+  return successfulToolCalls(events).flatMap((call) => {
+    if (call.name === VOICE_OVER) {
+      const segments = call.arguments.segments
+      return Array.isArray(segments)
+        ? segments.filter(isVoiceOverSegment)
+          .filter(segment => segment.visibleTo.includes(characterId))
+          .map(segment => ({ type: 'text' as const, text: segment.content }))
+        : []
+    }
+    if (call.name === WARN && typeof call.arguments.target === 'string'
+      && typeof call.arguments.reason === 'string') {
+      return [{
+        type: 'text' as const,
+        text: `<dm_warning>${escapeXml(call.arguments.target)} 因为 ${escapeXml(call.arguments.reason)} 被dm警告了</dm_warning>`,
+      }]
+    }
+    return []
+  })
+}
+
 function instructionFor(characterId: string, turns: readonly CharacterTurnRead[]): readonly ContentBlock[] {
   let previous = -1
   for (let index = turns.length - 1; index >= 0; index -= 1) {
@@ -42,11 +97,10 @@ function instructionFor(characterId: string, turns: readonly CharacterTurnRead[]
       break
     }
   }
-  return turns.slice(previous + 1)
-    .filter(turn => turn.characterId === 'dm')
-    .flatMap(turn => voiceOvers(turn.events))
-    .filter(segment => segment.visibleTo.includes(characterId))
-    .map(segment => ({ type: 'text' as const, text: segment.content }))
+  return turns.slice(previous + 1).flatMap((turn) => {
+    if (turn.characterId !== 'dm') return publicContent(turn)
+    return dmContent(turn.events, characterId)
+  })
 }
 
 /** Reconstruct the next Role-play action from settled top-level Turns only. */

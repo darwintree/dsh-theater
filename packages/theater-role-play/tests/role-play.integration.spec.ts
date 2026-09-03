@@ -7,10 +7,12 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentDefaultModel from '@deepseek-ai/dsh-agent-default-model'
+import * as AgentInstructions from '@deepseek-ai/dsh-agent-instructions'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import AgentPresets from '@deepseek-ai/dsh-agent-presets'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import LlmRuntime, { type ContentBlock } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -35,6 +37,11 @@ function call(id: string, name: string, args: unknown) {
   return { type: 'tool-call' as const, id, name, arguments: JSON.stringify(args) }
 }
 
+function sessionTitle(session: Session): string | undefined {
+  const event = session.events.findLast(candidate => String(candidate.type) === 'session/title')
+  return (event as unknown as { data?: { title?: string } } | undefined)?.data?.title
+}
+
 async function setup(behaviour: Behaviour, persistenceRoot?: string): Promise<Context> {
   const presetRoot = await mkdtemp(join(tmpdir(), 'role-play-preset-'))
   const preset = join(presetRoot, 'v3')
@@ -53,6 +60,9 @@ async function setup(behaviour: Behaviour, persistenceRoot?: string): Promise<Co
   }
   await ctx.plugin(StageService)
   await ctx.plugin(SystemPrompt, { persona: 'Host persona.' })
+  ctx.systemPrompt.context({ name: 'test:ambient', order: 0, text: 'ambient runtime context' })
+  await ctx.plugin(LocalFileSystem, { cwd: '/' })
+  await ctx.plugin(AgentInstructions, { dshHome: presetRoot, maxBytes: 65536 })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [], maxParallelToolCalls: 1 })
@@ -92,16 +102,29 @@ describe('Stage-free Role-play', () => {
               { visibleTo: ['saber', 'rider'], content: '酒液在月光下泛起清亮的波纹。' },
               { visibleTo: ['archer'], content: '' },
             ] })] }
+          : { content: [call('choose-archer', 'recommend_next_character', {
+              character: 'archer', reason: 'Archer 可以回应 Rider 的举杯。',
+            })] }
+        if (user.includes('[archer尝试说话/行动]')) return count === 5
+          ? { content: [call('final', 'voice_over', { segments: [
+              { visibleTo: ['saber', 'rider', 'archer'], content: 'Archer 接过酒杯。' },
+            ] })] }
           : { content: [call('end', 'end_performance', {})] }
       }
       if (sessionId.endsWith('/characters/rider')) {
         const count = options.messages.filter(message => message.role === 'assistant').length
-        return count === 0
+        if (count === 0) return { content: [
+          call('think-opening', 'think', { thought: '酒宴还未真正开始，我先观察另外两位王。' }),
+        ] }
+        return count === 1
           ? { content: [
               { type: 'text', text: 'Rider仰头大笑，先闻了闻桶中的酒。' },
               call('ask-wine', 'perceive_or_recall', { content: '这桶酒或庭院里是否有异常魔力？' }),
             ] }
           : { content: [{ type: 'text', text: '他把酒斟满三杯，向另外两位王举杯。' }] }
+      }
+      if (sessionId.endsWith('/characters/archer')) {
+        return { content: [{ type: 'text', text: '我接过酒杯，审视其中的酒液。' }] }
       }
       throw new Error(`unexpected model request for ${sessionId}: ${user}`)
     }
@@ -111,8 +134,18 @@ describe('Stage-free Role-play', () => {
     await ctx.theater.create({ performanceId, presetId: 'v3', cwd: here })
     await ctx.theater.whenIdle(performanceId)
 
+    for (const character of ['dm', 'saber', 'rider', 'archer']) {
+      const session = ctx.sessions.get(characterSessionId(performanceId, character))!
+      expect(session.events.some(event => event.type === 'user/message'
+        && event.data.source.kind === 'agent-instructions')).toBe(false)
+      expect(session.events.some(event => event.type === 'user/message'
+        && event.data.source.kind === 'plugin'
+        && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt')).toBe(false)
+    }
+
     expect(ctx.theater.read(performanceId)).toMatchObject({ phase: 'completed', stages: {} })
     const performance = ctx.sessions.get(performanceId)!
+    expect(sessionTitle(performance)).toBe('王之酒宴')
     expect(performance.events
       .filter(event => event.type === 'theater/segment-started' || event.type === 'theater/segment-ended')
       .map(event => [event.type, event.data.characterId])).toEqual([
@@ -124,23 +157,53 @@ describe('Stage-free Role-play', () => {
       ['theater/segment-ended', 'rider'],
       ['theater/segment-started', 'dm'],
       ['theater/segment-ended', 'dm'],
+      ['theater/segment-started', 'archer'],
+      ['theater/segment-ended', 'archer'],
+      ['theater/segment-started', 'dm'],
+      ['theater/segment-ended', 'dm'],
     ])
 
     const rider = ctx.sessions.get(characterSessionId(performanceId, 'rider'))!
+    expect(sessionTitle(rider)).toBe('王之酒宴 · Rider')
+    expect(sessionTitle(ctx.sessions.get(characterSessionId(performanceId, 'saber'))!))
+      .toBe('王之酒宴 · Saber')
+    expect(sessionTitle(ctx.sessions.get(characterSessionId(performanceId, 'archer'))!))
+      .toBe('王之酒宴 · Archer')
     const riderInstructions = rider.events
       .filter(event => event.type === 'user/message')
       .map(event => blockText(event.data.content))
     expect(riderInstructions[0]).toBe('征服王举起酒杯，邀请三位王者开宴。')
     expect(rider.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
-    expect(rider.events.filter(event => event.type === 'assistant/message')).toHaveLength(2)
+    expect(rider.events.filter(event => event.type === 'assistant/message')).toHaveLength(3)
+    const thinkResult = rider.events.find(event => event.type === 'tool/result'
+      && event.data.message.source.callId === 'think-opening')
+    expect(thinkResult?.type === 'tool/result' && thinkResult.data.message.content[0].isError).toBe(false)
+    expect(thinkResult?.type === 'tool/result'
+      && blockText(thinkResult.data.message.content[0].content)).toBe('')
+
+    const archer = ctx.sessions.get(characterSessionId(performanceId, 'archer'))!
+    const archerInstruction = archer.events.find(event => event.type === 'user/message')
+    expect(archerInstruction?.type === 'user/message' && archerInstruction.data.content).toEqual([
+      { type: 'text', text: '征服王举起酒杯，邀请三位王者开宴。' },
+      { type: 'text', text: '<character_tool character="rider" name="think" />' },
+      { type: 'text', text: '<character_message character="rider">\nRider仰头大笑，先闻了闻桶中的酒。\n</character_message>' },
+      { type: 'text', text: '<character_tool character="rider" name="perceive_or_recall" />' },
+      { type: 'text', text: '<character_message character="rider">\n他把酒斟满三杯，向另外两位王举杯。\n</character_message>' },
+      { type: 'text', text: '' },
+    ])
 
     const dm = ctx.sessions.get(characterSessionId(performanceId, 'dm'))!
+    expect(sessionTitle(dm)).toBe('王之酒宴 · DM')
     const dmInstructions = dm.events
       .filter(event => event.type === 'user/message' && event.data.source.kind === 'plugin')
       .map(event => blockText(event.data.content))
-    expect(dmInstructions).toHaveLength(3)
+    expect(dmInstructions).toHaveLength(4)
     expect(dmInstructions[1]).toContain('【rider】询问：这桶酒或庭院里是否有异常魔力？')
     expect(dmInstructions[2]).toBe([
+      '[rider调用think]',
+      '{"thought":"酒宴还未真正开始，我先观察另外两位王。"}',
+      '[rider工具结果:think]',
+      '',
       '[rider尝试说话/行动]',
       'Rider仰头大笑，先闻了闻桶中的酒。',
       '【rider】询问：这桶酒或庭院里是否有异常魔力？',
@@ -150,7 +213,14 @@ describe('Stage-free Role-play', () => {
       '他把酒斟满三杯，向另外两位王举杯。',
     ].join('\n'))
     expect(dmInstructions[2]).not.toContain('本回合指令')
+    expect(blockText(archerInstruction?.type === 'user/message' ? archerInstruction.data.content : []))
+      .not.toContain('酒宴还未真正开始，我先观察另外两位王。')
+    expect(blockText(archerInstruction?.type === 'user/message' ? archerInstruction.data.content : []))
+      .not.toContain('这桶酒或庭院里是否有异常魔力？')
     const dmSystem = systems.get(String(characterSessionId(performanceId, 'dm'))) ?? ''
+    expect(dmSystem).not.toContain('You are an AI agent powered by DeepSeek Harness.')
+    expect(dmSystem).not.toContain('Check the [exit code: N] marker on every bash result')
+    expect(dmSystem).not.toContain('Use the ralph tool ONLY when the direct human explicitly asks')
     expect(dmSystem).toContain('<dm_guidance>\n你正在参与一场多人角色扮演模拟。你是这场角色扮演的 DM')
     expect(dmSystem).toContain('</dm_guidance>\n\n<common_scene_card>')
     expect(dmSystem).toContain('</common_scene_card>\n\n<character_cards>')
@@ -158,9 +228,9 @@ describe('Stage-free Role-play', () => {
     expect(dmSystem).toMatch(/<opening>[\s\S]*<\/opening>$/)
     expect(dmSystem).toContain([
       '【在场角色】',
-      'voice_over 与 recommend_next_character 使用以下 Character ID：saber、rider、archer。',
+      'voice_over、warn 与 recommend_next_character 使用以下 Character ID：saber、rider、archer。',
     ].join('\n'))
-    expect(dmSystem.indexOf('voice_over 与 recommend_next_character 使用以下 Character ID'))
+    expect(dmSystem.indexOf('voice_over、warn 与 recommend_next_character 使用以下 Character ID'))
       .toBeLessThan(dmSystem.indexOf('</dm_guidance>'))
     const riderSystem = systems.get(String(characterSessionId(performanceId, 'rider'))) ?? ''
     expect(riderSystem).toContain('<character_guidance>\n你正在参与一场多人角色扮演模拟。')
@@ -175,7 +245,9 @@ describe('Stage-free Role-play', () => {
     })
     await ctx.theater.whenIdle(childId)
     expect(ctx.theater.read(childId)).toMatchObject({ phase: 'completed', stages: {} })
+    expect(sessionTitle(ctx.sessions.get(childId)!)).toBe('王之酒宴')
     const childRider = ctx.sessions.get(characterSessionId(childId, 'rider'))!
+    expect(sessionTitle(childRider)).toBe('王之酒宴 · Rider')
     expect(childRider.events
       .filter(event => event.type === 'user/message')
       .map(event => blockText(event.data.content))[0])
@@ -364,42 +436,54 @@ describe('Stage-free Role-play', () => {
     expect(ctx.theater.read(performanceId).phase).toBe('failed')
   })
 
-  it('delivers only accumulated visible facts, including empty content, when each Character is selected', async () => {
+  it('delivers accumulated public text and visible facts from the Character watermark', async () => {
     const behaviour: Behaviour = (options): MockResponse => {
       const sessionId = String(options.sessionId)
       const count = options.messages.filter(message => message.role === 'assistant').length
       if (sessionId.endsWith('/characters/dm')) {
         const voice = (id: string, segments: unknown[]) => ({ content: [call(id, 'voice_over', { segments })] })
-        if (count === 0) return voice('v0', [
+        if (count === 0) return { content: [call('warning', 'warn', {
+          target: 'saber', reason: '越权 <代操>',
+        })] }
+        if (count === 1) return voice('v0', [
           { visibleTo: ['saber'], content: 'S0' },
           { visibleTo: ['rider'], content: 'R0' },
           { visibleTo: ['archer'], content: '' },
         ])
-        if (count === 1) return { content: [call('to-saber', 'recommend_next_character', {
+        if (count === 2) return { content: [call('to-saber', 'recommend_next_character', {
           character: 'saber', reason: 'first reason',
         })] }
-        if (count === 2) return voice('v1', [
+        if (count === 3) return voice('v1', [
           { visibleTo: ['saber'], content: 'S1' },
           { visibleTo: ['rider'], content: 'R1' },
           { visibleTo: ['archer'], content: 'A1' },
         ])
-        if (count === 3) return { content: [call('to-archer', 'recommend_next_character', {
+        if (count === 4) return { content: [call('to-archer', 'recommend_next_character', {
           character: 'archer', reason: 'second reason',
         })] }
-        if (count === 4) return voice('v2', [
+        if (count === 5) return voice('v2', [
           { visibleTo: ['saber'], content: 'S2' },
           { visibleTo: ['rider'], content: 'R2' },
           { visibleTo: ['archer'], content: 'A2' },
         ])
-        if (count === 5) return { content: [call('to-rider', 'recommend_next_character', {
+        if (count === 6) return { content: [call('to-rider', 'recommend_next_character', {
           character: 'rider', reason: 'third reason',
         })] }
-        if (count === 6) return voice('v3', [
+        if (count === 7) return voice('v3', [
           { visibleTo: ['saber', 'rider', 'archer'], content: 'F' },
         ])
-        if (count === 7) return { content: [call('end', 'end_performance', {})] }
+        if (count === 8) return { content: [call('back-to-saber', 'recommend_next_character', {
+          character: 'saber', reason: 'Saber should answer the other kings.',
+        })] }
+        if (count === 9) return voice('v4', [
+          { visibleTo: ['saber', 'rider', 'archer'], content: 'Done' },
+        ])
+        if (count === 10) return { content: [call('end', 'end_performance', {})] }
       }
-      if (sessionId.endsWith('/characters/saber')) return { content: [{ type: 'text', text: 'Saber acts.' }] }
+      if (sessionId.endsWith('/characters/saber')) {
+        const count = options.messages.filter(message => message.role === 'assistant').length
+        return { content: [{ type: 'text', text: count === 0 ? 'Saber raises <cup> & waits.' : 'Saber acts again.' }] }
+      }
       if (sessionId.endsWith('/characters/archer')) return { content: [{ type: 'text', text: 'Archer acts.' }] }
       if (sessionId.endsWith('/characters/rider')) return { content: [{ type: 'text', text: 'Rider acts.' }] }
       throw new Error(`unexpected request for ${sessionId}`)
@@ -410,21 +494,43 @@ describe('Stage-free Role-play', () => {
     await ctx.theater.create({ performanceId, presetId: 'v3', cwd: here })
     await ctx.theater.whenIdle(performanceId)
 
-    const instruction = (characterId: string) => ctx.sessions.get(characterSessionId(performanceId, characterId))!.events
-      .find(event => event.type === 'user/message')
-    expect(instruction('saber')?.type === 'user/message' && instruction('saber').data.content).toEqual([
+    const dm = ctx.sessions.get(characterSessionId(performanceId, 'dm'))!
+    const warningResult = dm.events.find(event => event.type === 'tool/result'
+      && event.data.message.source.callId === 'warning')
+    expect(warningResult?.type === 'tool/result'
+      && blockText(warningResult.data.message.content[0].content)).toBe('')
+
+    const instructions = (characterId: string) => ctx.sessions.get(characterSessionId(performanceId, characterId))!.events
+      .filter(event => event.type === 'user/message')
+    const saberInstructions = instructions('saber')
+    expect(saberInstructions[0]?.type === 'user/message' && saberInstructions[0].data.content).toEqual([
+      { type: 'text', text: '<dm_warning>saber 因为 越权 &lt;代操&gt; 被dm警告了</dm_warning>' },
       { type: 'text', text: 'S0' },
     ])
-    expect(instruction('archer')?.type === 'user/message' && instruction('archer').data.content).toEqual([
+    expect(saberInstructions[1]?.type === 'user/message' && saberInstructions[1].data.content).toEqual([
+      { type: 'text', text: 'S1' },
+      { type: 'text', text: '<character_message character="archer">\nArcher acts.\n</character_message>' },
+      { type: 'text', text: 'S2' },
+      { type: 'text', text: '<character_message character="rider">\nRider acts.\n</character_message>' },
+      { type: 'text', text: 'F' },
+    ])
+    const archerInstruction = instructions('archer')[0]
+    expect(archerInstruction?.type === 'user/message' && archerInstruction.data.content).toEqual([
+      { type: 'text', text: '<dm_warning>saber 因为 越权 &lt;代操&gt; 被dm警告了</dm_warning>' },
       { type: 'text', text: '' },
+      { type: 'text', text: '<character_message character="saber">\nSaber raises &lt;cup&gt; &amp; waits.\n</character_message>' },
       { type: 'text', text: 'A1' },
     ])
-    expect(instruction('rider')?.type === 'user/message' && instruction('rider').data.content).toEqual([
+    const riderInstruction = instructions('rider')[0]
+    expect(riderInstruction?.type === 'user/message' && riderInstruction.data.content).toEqual([
+      { type: 'text', text: '<dm_warning>saber 因为 越权 &lt;代操&gt; 被dm警告了</dm_warning>' },
       { type: 'text', text: 'R0' },
+      { type: 'text', text: '<character_message character="saber">\nSaber raises &lt;cup&gt; &amp; waits.\n</character_message>' },
       { type: 'text', text: 'R1' },
+      { type: 'text', text: '<character_message character="archer">\nArcher acts.\n</character_message>' },
       { type: 'text', text: 'R2' },
     ])
-    expect(blockText(instruction('rider')?.type === 'user/message' ? instruction('rider').data.content : []))
+    expect(blockText(riderInstruction?.type === 'user/message' ? riderInstruction.data.content : []))
       .not.toContain('third reason')
   })
 

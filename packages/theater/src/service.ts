@@ -3,6 +3,7 @@
 import { Service, type Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
+import { suppressAgentInstructions } from '@deepseek-ai/dsh-agent-instructions'
 import type {} from '@deepseek-ai/dsh-agent-presets'
 import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import {
@@ -14,6 +15,7 @@ import {
   type SessionId as SessionIdType,
 } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
+import type {} from '@deepseek-ai/dsh-session-title'
 import { PERSONA_ORDER, PERSONA_SECTION } from '@deepseek-ai/dsh-system-prompt'
 import {
   AnonymousEntries,
@@ -51,6 +53,7 @@ import type {
 } from './types.js'
 
 interface ContributionLayer extends ScopeLayer {
+  readonly titles: AnonymousEntries<string>
   readonly autoAdvance: AnonymousEntries<boolean>
   readonly characters: AnonymousEntries<TheaterCharacterContribution>
   readonly directors: AnonymousEntries<Director>
@@ -58,11 +61,13 @@ interface ContributionLayer extends ScopeLayer {
 
 interface ResolvedCharacter {
   readonly id: string
+  readonly title: string
   readonly systemPrompt: string
   readonly tools: readonly { readonly factory: TheaterToolFactory; readonly config: JsonValue }[]
 }
 
 interface TheaterContributions {
+  readonly title: string
   readonly autoAdvance: boolean
   readonly characters: readonly ResolvedCharacter[]
   readonly stages: readonly {
@@ -98,11 +103,13 @@ export class TheaterService extends Service {
 
   private readonly layers = new ScopedLayers<ContributionLayer>(
     () => ({
+      titles: new AnonymousEntries<string>(),
       autoAdvance: new AnonymousEntries<boolean>(),
       characters: new AnonymousEntries<TheaterCharacterContribution>(),
       directors: new AnonymousEntries<Director>(),
       isEmpty() {
-        return this.autoAdvance.isEmpty() && this.characters.isEmpty() && this.directors.isEmpty()
+        return this.titles.isEmpty() && this.autoAdvance.isEmpty()
+          && this.characters.isEmpty() && this.directors.isEmpty()
       },
     }),
     () => undefined,
@@ -117,6 +124,10 @@ export class TheaterService extends Service {
 
   registerCharacter(character: TheaterCharacterContribution): () => void {
     return this.registerContribution(character, layer => layer.characters, 'registerCharacter')
+  }
+
+  registerTitle(title: string): () => void {
+    return this.registerContribution(nonEmpty(title, 'Performance title'), layer => layer.titles, 'registerTitle')
   }
 
   registerAutoAdvance(autoAdvance: boolean): () => void {
@@ -172,6 +183,7 @@ export class TheaterService extends Service {
     const scope = createScope(this.ctx, { performanceId })
     try {
       const session = scope.ctx.sessions.create(performanceId, { meta: { cwd: input.cwd } })
+      this.ensureSessionTitle(session, contributions.title)
       const runtime = this.runtime(scope, session, configured, contributions)
       await this.openStages(runtime)
       await this.createCharacters(runtime)
@@ -230,6 +242,11 @@ export class TheaterService extends Service {
         return this.read(performanceId)
       }
       await this.resumeCharacters(runtime)
+      this.ensureSessionTitle(session, contributions.title)
+      await Promise.all([
+        ...[...runtime.characters.values()].map(agent => scope.ctx.sessions.flush(agent.session)),
+        scope.ctx.sessions.flush(session),
+      ])
       this.startMainLoop(runtime)
       if (!runtime.autoAdvance) await runtime.mainLoop
       return this.read(performanceId)
@@ -506,6 +523,10 @@ export class TheaterService extends Service {
   private async resolveContributions(presetId: string): Promise<TheaterContributions> {
     const key: ScopeKey = await this.ctx.agentPresets.standingKeyFor(presetId)
     const layer = this.layers.peek(key)
+    const titles = layer === undefined ? [] : [...layer.titles.values()]
+    if (titles.length > 1) {
+      throw new Error(`Agent Preset ${JSON.stringify(presetId)} must contribute at most one Theater title; found ${titles.length}`)
+    }
     const autoAdvanceValues = layer === undefined ? [] : [...layer.autoAdvance.values()]
     if (autoAdvanceValues.length > 1) {
       throw new Error(`Agent Preset ${JSON.stringify(presetId)} must contribute at most one Theater autoAdvance value; found ${autoAdvanceValues.length}`)
@@ -517,6 +538,7 @@ export class TheaterService extends Service {
     const registeredCharacters = layer === undefined ? [] : [...layer.characters.values()]
     const characters = registeredCharacters.map((character) => ({
       id: character.id,
+      title: nonEmpty(character.title ?? character.id, `Title for Character ${JSON.stringify(character.id)}`),
       systemPrompt: character.systemPrompt,
       tools: character.tools.map((declaration) => {
         const kind = nonEmpty(declaration.factory, `Tool factory for Character ${JSON.stringify(character.id)}`)
@@ -536,6 +558,7 @@ export class TheaterService extends Service {
       ...declaration,
     }))
     return {
+      title: nonEmpty(titles[0] ?? presetId, 'Performance title'),
       autoAdvance: autoAdvanceValues[0] ?? true,
       characters,
       stages,
@@ -596,6 +619,9 @@ export class TheaterService extends Service {
         agentOptions: runtime.scope.ctx.agentDefaultModel.currentSelection(),
         setup: agentCtx => this.setupCharacter(runtime, character.id, agentCtx),
       })
+      const title = runtime.contributions?.characters.find(candidate => candidate.id === character.id)?.title
+        ?? character.id
+      this.ensureSessionTitle(handle.agent.session, title)
       this.ensureCharacterMarker(handle.agent.session, character.id)
       runtime.characters.set(character.id, handle.agent)
     }
@@ -613,8 +639,20 @@ export class TheaterService extends Service {
         await handle.dispose()
         throw new Error(`Character ${JSON.stringify(character.id)} is missing its durable Theater configuration`)
       }
+      const title = runtime.contributions?.characters.find(candidate => candidate.id === character.id)?.title
+        ?? character.id
+      this.ensureSessionTitle(handle.agent.session, title)
       runtime.characters.set(character.id, handle.agent)
     }
+  }
+
+  private ensureSessionTitle(session: Session, title: string): void {
+    if (session.events.some(event => event.type === 'session/title')) return
+    session.append('session/title', {
+      title,
+      messageSeqs: [],
+      source: { kind: 'user' },
+    })
   }
 
   private setupCharacter(runtime: PerformanceRuntime, characterId: string, agentCtx: Context): void {
@@ -622,10 +660,13 @@ export class TheaterService extends Service {
     if (contributions === undefined) throw new Error('cannot compose Character without Theater contributions')
     const character = contributions.characters.find(candidate => candidate.id === characterId)
     if (character === undefined) throw new Error(`missing current Character contribution ${JSON.stringify(characterId)}`)
+    suppressAgentInstructions(agentCtx)
+    agentCtx.systemPrompt.suppressRuntimeContext()
     agentCtx.systemPrompt.section({
       name: PERSONA_SECTION,
       order: PERSONA_ORDER,
       text: character.systemPrompt,
+      complete: true,
     })
     const stages = new Set(contributions.stages.map(stage => stage.stageId))
     const resolveStage = (stageId: string) => {

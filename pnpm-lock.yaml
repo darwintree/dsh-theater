@@ -113,6 +113,9 @@ importers:
       '@deepseek-ai/dsh-agent-default-model':
         specifier: link:../../../deepseek-harness/packages/core/agent-default-model
         version: link:../../../deepseek-harness/packages/core/agent-default-model
+      '@deepseek-ai/dsh-agent-instructions':
+        specifier: link:../../../deepseek-harness/packages/context/agent-instructions
+        version: link:../../../deepseek-harness/packages/context/agent-instructions
       '@deepseek-ai/dsh-agent-loop':
         specifier: link:../../../deepseek-harness/packages/core/agent-loop
         version: link:../../../deepseek-harness/packages/core/agent-loop
@@ -134,6 +137,9 @@ importers:
       '@deepseek-ai/dsh-session-persistence-jsonl':
         specifier: link:../../../deepseek-harness/packages/session/session-persistence-jsonl
         version: link:../../../deepseek-harness/packages/session/session-persistence-jsonl
+      '@deepseek-ai/dsh-session-title':
+        specifier: link:../../../deepseek-harness/packages/session/session-title
+        version: link:../../../deepseek-harness/packages/session/session-title
       '@deepseek-ai/dsh-system-prompt':
         specifier: link:../../../deepseek-harness/packages/core/system-prompt
         version: link:../../../deepseek-harness/packages/core/system-prompt
@@ -216,12 +222,18 @@ importers:
       '@deepseek-ai/dsh-agent-default-model':
         specifier: link:../../../deepseek-harness/packages/core/agent-default-model
         version: link:../../../deepseek-harness/packages/core/agent-default-model
+      '@deepseek-ai/dsh-agent-instructions':
+        specifier: link:../../../deepseek-harness/packages/context/agent-instructions
+        version: link:../../../deepseek-harness/packages/context/agent-instructions
       '@deepseek-ai/dsh-agent-loop':
         specifier: link:../../../deepseek-harness/packages/core/agent-loop
         version: link:../../../deepseek-harness/packages/core/agent-loop
       '@deepseek-ai/dsh-agent-presets':
         specifier: link:../../../deepseek-harness/packages/preset/agent-presets
         version: link:../../../deepseek-harness/packages/preset/agent-presets
+      '@deepseek-ai/dsh-fs-local':
+        specifier: link:../../../deepseek-harness/packages/fs/fs-local
+        version: link:../../../deepseek-harness/packages/fs/fs-local
       '@deepseek-ai/dsh-llm':
         specifier: link:../../../deepseek-harness/packages/llm/llm
         version: link:../../../deepseek-harness/packages/llm/llm

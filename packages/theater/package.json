@@ -28,6 +28,7 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
     "@deepseek-ai/dsh-agent": "*",
+    "@deepseek-ai/dsh-agent-instructions": "*",
     "@deepseek-ai/dsh-agent-default-model": "*",
     "@deepseek-ai/dsh-agent-presets": "*",
     "@deepseek-ai/dsh-llm": "*",
@@ -45,6 +46,7 @@
     "@deepseek-ai/cordis-plugin-include": "link:../../../deepseek-harness/vendor/include",
     "@deepseek-ai/cordis-plugin-loader": "link:../../../deepseek-harness/vendor/loader",
     "@deepseek-ai/dsh-agent": "link:../../../deepseek-harness/packages/core/agent",
+    "@deepseek-ai/dsh-agent-instructions": "link:../../../deepseek-harness/packages/context/agent-instructions",
     "@deepseek-ai/dsh-agent-default-model": "link:../../../deepseek-harness/packages/core/agent-default-model",
     "@deepseek-ai/dsh-agent-loop": "link:../../../deepseek-harness/packages/core/agent-loop",
     "@deepseek-ai/dsh-agent-presets": "link:../../../deepseek-harness/packages/preset/agent-presets",
@@ -53,6 +55,7 @@
     "@deepseek-ai/dsh-session": "link:../../../deepseek-harness/packages/core/session",
     "@deepseek-ai/dsh-session-persistence": "link:../../../deepseek-harness/packages/session/session-persistence",
     "@deepseek-ai/dsh-session-persistence-jsonl": "link:../../../deepseek-harness/packages/session/session-persistence-jsonl",
+    "@deepseek-ai/dsh-session-title": "link:../../../deepseek-harness/packages/session/session-title",
     "@deepseek-ai/dsh-system-prompt": "link:../../../deepseek-harness/packages/core/system-prompt",
     "@deepseek-ai/dsh-tools": "link:../../../deepseek-harness/packages/core/tools"
   }

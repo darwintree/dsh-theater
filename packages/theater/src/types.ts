@@ -10,6 +10,7 @@ export interface TheaterToolDeclaration {
 
 export interface TheaterCharacterContribution {
   readonly id: string
+  readonly title?: string
   readonly systemPrompt: string
   readonly tools: readonly TheaterToolDeclaration[]
 }

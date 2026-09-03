@@ -243,7 +243,7 @@ describe('Performance Theater', () => {
 
     const firstStartFlush = flushes.find(flush =>
       flush.sessionId === performanceId && flush.lastType === 'theater/segment-started')
-    expect(firstStartFlush).toMatchObject({ blackSeq: 1, whiteSeq: 1 })
+    expect(firstStartFlush).toMatchObject({ blackSeq: 2, whiteSeq: 2 })
     for (const end of session.events.filter(event => event.type === 'theater/segment-ended')) {
       const checkpoint = flushes.find(flush =>
         flush.sessionId === performanceId
@@ -264,6 +264,10 @@ describe('Performance Theater', () => {
 
     for (const character of ['black', 'white'] as const) {
       const characterSession = ctx.sessions.get(characterSessionId(performanceId, character))!
+      expect(characterSession.events.slice(0, 2).map(event => String(event.type))).toEqual([
+        'session/title',
+        'theater/character-configured',
+      ])
       expect(characterSession.header.cwd).toBe(FIXTURES)
       expect(characterSession.header.agentPreset).toBeUndefined()
       expect(systems.get(String(characterSession.id))).toContain(`You are the ${character} Gomoku test Character.`)
