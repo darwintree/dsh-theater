@@ -1,7 +1,7 @@
 /// <reference types="node" />
 
 import { Service, type Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, ModelSelection } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { suppressAgentInstructions } from '@deepseek-ai/dsh-agent-instructions'
 import type {} from '@deepseek-ai/dsh-agent-presets'
@@ -62,6 +62,7 @@ interface ContributionLayer extends ScopeLayer {
 interface ResolvedCharacter {
   readonly id: string
   readonly title: string
+  readonly model?: ModelSelection
   readonly systemPrompt: string
   readonly tools: readonly { readonly factory: TheaterToolFactory; readonly config: JsonValue }[]
 }
@@ -539,6 +540,7 @@ export class TheaterService extends Service {
     const characters = registeredCharacters.map((character) => ({
       id: character.id,
       title: nonEmpty(character.title ?? character.id, `Title for Character ${JSON.stringify(character.id)}`),
+      ...character.model === undefined ? {} : { model: character.model },
       systemPrompt: character.systemPrompt,
       tools: character.tools.map((declaration) => {
         const kind = nonEmpty(declaration.factory, `Tool factory for Character ${JSON.stringify(character.id)}`)
@@ -616,7 +618,7 @@ export class TheaterService extends Service {
             seedLength: seed.watermark,
           },
         },
-        agentOptions: runtime.scope.ctx.agentDefaultModel.currentSelection(),
+        agentOptions: character.model ?? runtime.scope.ctx.agentDefaultModel.currentSelection(),
         setup: agentCtx => this.setupCharacter(runtime, character.id, agentCtx),
       })
       const title = runtime.contributions?.characters.find(candidate => candidate.id === character.id)?.title
@@ -631,7 +633,7 @@ export class TheaterService extends Service {
     for (const character of runtime.configured.characters) {
       const handle = await runtime.scope.ctx.agents.resume({
         resumeSessionId: characterSessionId(runtime.session.id, character.id),
-        agentOptions: runtime.scope.ctx.agentDefaultModel.currentSelection(),
+        agentOptions: character.model ?? runtime.scope.ctx.agentDefaultModel.currentSelection(),
         setup: agentCtx => this.setupCharacter(runtime, character.id, agentCtx),
       })
       const marker = handle.agent.session.events.find(event => event.type === 'theater/character-configured')

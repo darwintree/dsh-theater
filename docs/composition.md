@@ -98,6 +98,7 @@ Character's System Prompt and complete Tool list, and its Director:
     autoAdvance: true
     characters:
       black:
+        model: { provider: deepseek-official, model: deepseek-v4-flash }
         systemPrompt: You are the black player in a Gomoku game.
         tools:
           - factory: gomoku-read-board
@@ -122,6 +123,8 @@ The preset stores only creation plans. For each Performance runtime, Theater
 opens the declared Stages in the Performance Session, materializes fresh Tools
 bound to those Stages, shadows the deployment persona with the declared System
 Prompt, and registers the exact Tool list in each bare Character Agent scope.
+Each Character uses its declared model selection or the deployment default;
+a declared choice is durable across resume and fork.
 A Tool receives a bound Stage handle; it does not know the Performance,
 Character, owner Session, or Session ID convention.
 

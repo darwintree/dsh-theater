@@ -1,3 +1,4 @@
+import type { ModelSelection } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
@@ -11,6 +12,7 @@ export interface TheaterToolDeclaration {
 export interface TheaterCharacterContribution {
   readonly id: string
   readonly title?: string
+  readonly model?: ModelSelection
   readonly systemPrompt: string
   readonly tools: readonly TheaterToolDeclaration[]
 }
@@ -54,6 +56,7 @@ export interface TheaterConfiguredTool {
 
 export interface TheaterConfiguredCharacter {
   readonly id: string
+  readonly model?: ModelSelection
   readonly systemPrompt: string
   readonly tools: readonly TheaterConfiguredTool[]
 }

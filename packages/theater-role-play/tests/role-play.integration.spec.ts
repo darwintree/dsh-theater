@@ -11,7 +11,13 @@ import * as AgentInstructions from '@deepseek-ai/dsh-agent-instructions'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import AgentPresets from '@deepseek-ai/dsh-agent-presets'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
-import LlmRuntime, { type ContentBlock } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, {
+  LlmAdapter,
+  ReasoningEffortId,
+  type ContentBlock,
+  type LlmResolvedModelInfo,
+  type StreamChunk,
+} from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -40,6 +46,30 @@ function call(id: string, name: string, args: unknown) {
 function sessionTitle(session: Session): string | undefined {
   const event = session.events.findLast(candidate => String(candidate.type) === 'session/title')
   return (event as unknown as { data?: { title?: string } } | undefined)?.data?.title
+}
+
+class RolePlayMockAdapter extends LlmAdapter {
+  constructor(private readonly behaviour: Behaviour) {
+    super()
+  }
+
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: model,
+      inputModalities: ['text'],
+      reasoning: { efforts: [
+        { id: ReasoningEffortId('low'), name: 'Low' },
+        { id: ReasoningEffortId('medium'), name: 'Medium' },
+        { id: ReasoningEffortId('high'), name: 'High' },
+      ] },
+    })
+  }
+
+  override stream(options: Parameters<Behaviour>[0]): AsyncIterable<StreamChunk> {
+    return new MockLlmAdapter(this.behaviour, { model: options.model }).stream(options)
+  }
 }
 
 async function setup(behaviour: Behaviour, persistenceRoot?: string): Promise<Context> {
@@ -72,7 +102,7 @@ async function setup(behaviour: Behaviour, persistenceRoot?: string): Promise<Co
     roots: [{ path: presetRoot, trust: 'system' }],
     includeUserRoot: false,
   })
-  ctx.llm.registerAdapter(['mock'], new MockLlmAdapter(behaviour))
+  ctx.llm.registerAdapter(['commandcode'], new RolePlayMockAdapter(behaviour))
   await ctx.plugin(TheaterService)
   await ctx.plugin(RolePlay)
   return ctx
@@ -145,6 +175,16 @@ describe('Stage-free Role-play', () => {
 
     expect(ctx.theater.read(performanceId)).toMatchObject({ phase: 'completed', stages: {} })
     const performance = ctx.sessions.get(performanceId)!
+    expect(performance.events.find(event => event.type === 'theater/configured')).toMatchObject({
+      data: {
+        characters: [
+          { id: 'dm', model: { provider: 'commandcode', model: 'google/gemini-3.8-flash', reasoningEffort: 'medium' } },
+          { id: 'saber', model: { provider: 'commandcode', model: 'google/gemini-3.8-flash', reasoningEffort: 'low' } },
+          { id: 'rider', model: { provider: 'commandcode', model: 'google/gemini-3.8-flash', reasoningEffort: 'low' } },
+          { id: 'archer', model: { provider: 'commandcode', model: 'google/gemini-3.8-flash', reasoningEffort: 'low' } },
+        ],
+      },
+    })
     expect(sessionTitle(performance)).toBe('王之酒宴')
     expect(performance.events
       .filter(event => event.type === 'theater/segment-started' || event.type === 'theater/segment-ended')
@@ -193,6 +233,12 @@ describe('Stage-free Role-play', () => {
     ])
 
     const dm = ctx.sessions.get(characterSessionId(performanceId, 'dm'))!
+    expect(dm.events.find(event => event.type === 'request/header')).toMatchObject({
+      data: { header: { config: { provider: 'commandcode', model: 'google/gemini-3.8-flash', reasoningEffort: 'medium' } } },
+    })
+    expect(rider.events.find(event => event.type === 'request/header')).toMatchObject({
+      data: { header: { config: { provider: 'commandcode', model: 'google/gemini-3.8-flash', reasoningEffort: 'low' } } },
+    })
     expect(sessionTitle(dm)).toBe('王之酒宴 · DM')
     const dmInstructions = dm.events
       .filter(event => event.type === 'user/message' && event.data.source.kind === 'plugin')

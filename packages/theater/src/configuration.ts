@@ -3,6 +3,8 @@ import {
   type JsonValue,
   type SessionId as SessionIdType,
 } from '@deepseek-ai/dsh-session'
+import type { ModelSelection } from '@deepseek-ai/dsh-agent'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { StageConfigured, StateMachineFactory } from '@darwintree/dsh-stage'
 import type {
   TheaterConfigured,
@@ -32,6 +34,7 @@ export function resolvedConfiguration(
     readonly autoAdvance: boolean
     readonly characters: readonly {
       readonly id: string
+      readonly model?: ModelSelection
       readonly systemPrompt: string
       readonly tools: readonly { readonly factory: TheaterToolFactory; readonly config: JsonValue }[]
     }[]
@@ -55,6 +58,18 @@ export function resolvedConfiguration(
     }
     return {
       id,
+      ...character.model === undefined ? {} : {
+        model: {
+          provider: nonEmpty(character.model.provider, `Model provider for Character ${JSON.stringify(id)}`),
+          model: nonEmpty(character.model.model, `Model ID for Character ${JSON.stringify(id)}`),
+          ...character.model.reasoningEffort === undefined ? {} : {
+            reasoningEffort: ReasoningEffortId(nonEmpty(
+              character.model.reasoningEffort,
+              `Reasoning effort for Character ${JSON.stringify(id)}`,
+            )),
+          },
+        },
+      },
       systemPrompt: nonEmpty(character.systemPrompt, `System Prompt for Character ${JSON.stringify(id)}`),
       tools: character.tools.map(tool => ({
         factory: nonEmpty(tool.factory.kind, `Tool factory for Character ${JSON.stringify(id)}`),

@@ -1,4 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
+import type { ModelSelection } from '@deepseek-ai/dsh-agent'
 import type { TheaterToolDeclaration } from './types.js'
 
 export interface Config {
@@ -6,6 +7,7 @@ export interface Config {
   readonly autoAdvance?: boolean
   readonly characters: Readonly<Record<string, {
     readonly title?: string
+    readonly model?: ModelSelection
     readonly systemPrompt: string
     readonly tools: readonly TheaterToolDeclaration[]
   }>>
@@ -39,6 +41,11 @@ export function apply(ctx: Context, config: Config): void {
     if (character.title !== undefined && typeof character.title !== 'string') {
       throw new Error(`Character ${JSON.stringify(id)} title must be a string`)
     }
+    if (character.model !== undefined && (typeof character.model !== 'object' || character.model === null
+      || typeof character.model.provider !== 'string' || typeof character.model.model !== 'string'
+      || (character.model.reasoningEffort !== undefined && typeof character.model.reasoningEffort !== 'string'))) {
+      throw new Error(`Character ${JSON.stringify(id)} model must select a provider and model`)
+    }
     for (const [index, tool] of character.tools.entries()) {
       if (typeof tool !== 'object' || tool === null || Array.isArray(tool)) {
         throw new Error(`Tool ${index} for Character ${JSON.stringify(id)} must be an object`)
@@ -47,6 +54,7 @@ export function apply(ctx: Context, config: Config): void {
     ctx.theater.registerCharacter({
       id,
       ...(character.title === undefined ? {} : { title: character.title }),
+      ...(character.model === undefined ? {} : { model: character.model }),
       systemPrompt: character.systemPrompt,
       tools: character.tools,
     })

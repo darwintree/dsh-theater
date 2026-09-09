@@ -152,8 +152,9 @@ export const perceiveOrRecallToolFactory: TheaterToolFactory = {
     return defineTool({
       name: PERCEIVE_OR_RECALL,
       description: [
-        '向 DM 探查未知的环境细节或检索未明说的个人记忆；严禁擅自捏造或脑补未知事实。',
-        '调用后将由 DM 触发私下裁定并返回结果；本次调用不结束 Character Turn，角色获取结果后继续推进当前发言。',
+        '向 DM 主动观察环境、追查异常线索，或检索尚未明确的个人记忆；已有明确事实可以直接使用。',
+        '旁白中的声音、动静或魔力变化可以作为探查起点。当角色决定进一步看清、听清或辨认时，调用此工具获取观察结果；是否调查取决于角色当下的关注与判断。',
+        '调用后由 DM 私下裁定并返回结果；本次调用不结束 Character Turn，角色根据发现继续行动，自行决定是否示警及公开哪些信息。',
         '每个 Character Turn 最多调用一次。',
         '问题与裁定结果仅当前角色与 DM 可知，其他普通角色仅能感知你调用了该工具。',
       ].join(' '),
@@ -161,7 +162,7 @@ export const perceiveOrRecallToolFactory: TheaterToolFactory = {
         content: {
           type: 'string',
           required: true,
-          description: '以角色视角向 DM 提出的具体环境感知或记忆检索问题。',
+          description: '以角色视角说明关注的对象或方向、观察方式与想确认的问题；回忆时说明想检索的经历与问题。',
         },
       },
       output: {
