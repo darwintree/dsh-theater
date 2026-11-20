@@ -1,4 +1,4 @@
-import type { JsonValue } from '@deepseek-ai/dsh-session'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { StateMachine, StateMachineFactory } from '@darwintree/dsh-stage'
 import type { GomokuConfig, GomokuOp, GomokuState } from './types.js'
 import {

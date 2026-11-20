@@ -113,7 +113,7 @@ describe('Stage Service', () => {
     expect(resolutions).toBe(2)
     expect(ctx.stages.read(session, 'first')).toMatchObject({ value: 1, target: 3 })
     expect(ctx.stages.read(session, 'second')).toMatchObject({ value: 10, target: 20 })
-    expect(session.events.filter(event => event.type === 'stage/configured')).toMatchObject([
+    expect(session.snapshotEvents().filter(event => event.type === 'stage/configured')).toMatchObject([
       { data: { stageId: 'first', machine: 'counter', config: { initial: 1, target: 3 } } },
       { data: { stageId: 'second', machine: 'counter', config: { initial: 10, target: 20 } } },
     ])
@@ -147,7 +147,7 @@ describe('Stage Service', () => {
       .then(() => { resolved = true })
     await Promise.resolve()
     expect(resolved).toBe(false)
-    expect(session.events).toMatchObject([{ type: 'stage/configured', data: { stageId: 's', machine: 'counter', version: '1', config: { initial: 1, target: 3 } } }])
+    expect(session.snapshotEvents()).toMatchObject([{ type: 'stage/configured', data: { stageId: 's', machine: 'counter', version: '1', config: { initial: 1, target: 3 } } }])
     released()
     await pending
     expect(ctx.stages.read(session, 's')).toMatchObject({ value: 1, target: 3 })
@@ -159,10 +159,10 @@ describe('Stage Service', () => {
     const session = ctx.sessions.create(SessionId('stage-unique'))
     await ctx.stages.ensure(session, 'u', { factory: counterFactory, config: { initial: 2, target: 4 } })
     await ctx.stages.ensure(session, 'u', { factory: counterFactory, config: { initial: 2, target: 4 } })
-    expect(session.events.filter(e => e.type === 'stage/configured')).toHaveLength(1)
+    expect(session.snapshotEvents().filter(e => e.type === 'stage/configured')).toHaveLength(1)
     await expect(ctx.stages.ensure(session, 'u', { factory: counterFactory, config: { initial: 9, target: 9 } }))
       .resolves.toBe(undefined)
-    expect(session.events.filter(e => e.type === 'stage/configured')).toHaveLength(1)
+    expect(session.snapshotEvents().filter(e => e.type === 'stage/configured')).toHaveLength(1)
   })
 
   it('routes the same Stage ID independently for each owning Session', async () => {
@@ -183,8 +183,8 @@ describe('Stage Service', () => {
 
     expect(ctx.stages.read(first, 'shared')).toMatchObject({ value: 1, target: 3 })
     expect(ctx.stages.read(second, 'shared')).toMatchObject({ value: 12, target: 20 })
-    expect(first.events.filter(event => event.type === 'stage/op')).toHaveLength(1)
-    expect(second.events.filter(event => event.type === 'stage/op')).toHaveLength(1)
+    expect(first.snapshotEvents().filter(event => event.type === 'stage/op')).toHaveLength(1)
+    expect(second.snapshotEvents().filter(event => event.type === 'stage/op')).toHaveLength(1)
   })
 
   it('accepts an interaction, flushes before success, and rejects domain rejections without persisting', async () => {
@@ -202,7 +202,7 @@ describe('Stage Service', () => {
     expect(rejected).toEqual({ kind: 'domain-rejected', reason: 'not now' })
     expect(ctx.stages.read(session, 'i')).toMatchObject({ value: 2, target: 3 })
 
-    const ops = session.events.filter(e => e.type === 'stage/op')
+    const ops = session.snapshotEvents().filter(e => e.type === 'stage/op')
     expect(ops).toHaveLength(1)
     expect(ops[0]?.data).toMatchObject({ stageId: 'i', op: { kind: 'add', amount: 2 } })
     expect(ops[0]?.data).not.toHaveProperty('outcome')
@@ -216,7 +216,7 @@ describe('Stage Service', () => {
     ctx.on('session/flush', () => { throw new Error('durability unknown') })
     await expect(ctx.stages.interact(session, 'f', { kind: 'add', amount: 1 })).rejects.toThrow('durability unknown')
     expect(ctx.stages.read(session, 'f')).toMatchObject({ value: 1, target: 3 })
-    expect(session.events.filter(e => e.type === 'stage/op')).toHaveLength(1)
+    expect(session.snapshotEvents().filter(e => e.type === 'stage/op')).toHaveLength(1)
   })
 
   it('throws on a program fault without persisting a Stage Op', async () => {
@@ -224,7 +224,7 @@ describe('Stage Service', () => {
     const session = ctx.sessions.create(SessionId('stage-throw'))
     await ctx.stages.ensure(session, 't', { factory: applyingFactory, config: { initial: 0, target: 3 } })
     await expect(ctx.stages.interact(session, 't', { kind: 'throw', message: 'boom' })).rejects.toThrow('boom')
-    expect(session.events.filter(e => e.type === 'stage/op')).toHaveLength(0)
+    expect(session.snapshotEvents().filter(e => e.type === 'stage/op')).toHaveLength(0)
     expect(ctx.stages.read(session, 't')).toMatchObject({ value: 0, target: 3 })
   })
 
@@ -257,12 +257,12 @@ describe('Stage Service', () => {
 
     // cold resume: a fresh process + fresh session seeded with the persisted events.
     const coldCtx = await setup()
-    const cold = coldCtx.sessions.create(SessionId('stage-replay'), { seed: live.events })
+    const cold = coldCtx.sessions.create(SessionId('stage-replay'), { seed: live.snapshotEvents() })
     await coldCtx.stages.ensure(cold, 'rp', { factory: applyingFactory })
     expect(coldCtx.stages.read(cold, 'rp')).toMatchObject({ value: 5, target: 5 })
     expect(coldCtx.stages.completed(cold, 'rp')).toBe(true)
     // rejected request did not become a Stage Op
-    expect(cold.events.filter(e => e.type === 'stage/op')).toHaveLength(2)
+    expect(cold.snapshotEvents().filter(e => e.type === 'stage/op')).toHaveLength(2)
   })
 
   it('registers required Stage Session Event types for the Service lifecycle', async () => {
@@ -287,7 +287,7 @@ describe('Stage Service', () => {
     await ctx.stages.ensure(session, 'rt', { factory: applyingFactory, config: { initial: 0, target: 1 } })
     await ctx.stages.interact(session, 'rt', { kind: 'add', amount: 1 })
     session.append('turn/start', { turn: 1 })
-    const routed = stageEvents(session.events, 'rt')
+    const routed = stageEvents(session.snapshotEvents(), 'rt')
     expect(routed).toHaveLength(2)
     expect(isStageConfiguredEvent(routed[0]!)).toBe(true)
     expect(isStageOpEvent(routed[1]!)).toBe(true)
@@ -308,7 +308,7 @@ describe('Stage Service', () => {
     await ctx.stages.ensure(session, 'o', { factory: counterFactory, config: { initial: 0, target: 3 } })
     const accepted = await ctx.stages.interact(session, 'o', { kind: 'add', amount: 1 })
     expect(accepted).toEqual({ kind: 'accepted', outcome: { value: 1 } })
-    const op = session.events.filter(e => e.type === 'stage/op')[0]
+    const op = session.snapshotEvents().filter(e => e.type === 'stage/op')[0]
     expect(op?.data).toMatchObject({ stageId: 'o', op: { kind: 'add', amount: 1 }, outcome: { value: 1 } })
   })
 });

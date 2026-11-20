@@ -18,7 +18,7 @@ async function run(ctx: Context, presetId: string, exit: (code: number) => void)
     let segmentStarted = false
     stopAfterFirstSegment = ctx.on('session/flush', (session) => {
       if (session.id !== performanceId || segmentStarted
-        || session.events.at(-1)?.type !== 'theater/segment-started') return
+        || session.snapshotEvents().at(-1)?.type !== 'theater/segment-started') return
       segmentStarted = true
       ctx.theater.setAutoAdvance(performanceId, false)
     })

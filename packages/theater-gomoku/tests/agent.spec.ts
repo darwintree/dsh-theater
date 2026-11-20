@@ -8,6 +8,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import AgentPresets from '@deepseek-ai/dsh-agent-presets'
 import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
@@ -25,6 +26,7 @@ describe('Gomoku agent integration', () => {
     ctx.loader.builtins.include = Include
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjections)
     await ctx.plugin(StageService)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
@@ -75,13 +77,13 @@ describe('Gomoku agent integration', () => {
     await agent.whenIdle()
 
     // two accepted Stage Ops persisted, in order, plus no rejected events
-    const ops = agent.session.events.filter(event => event.type === 'stage/op')
+    const ops = agent.session.snapshotEvents().filter(event => event.type === 'stage/op')
     expect(ops).toHaveLength(2)
     expect(ops[0]?.data).toMatchObject({ op: { type: 'place-stone', color: 'black', x: 7, y: 7 } })
     expect(ops[1]?.data).toMatchObject({ op: { type: 'place-stone', color: 'white', x: 8, y: 8 } })
 
     // the final assistant message is the natural reply, not a tool call
-    const finalMessage = agent.session.events
+    const finalMessage = agent.session.snapshotEvents()
       .filter(event => event.type === 'assistant/message')
       .at(-1)
     expect(finalMessage?.type === 'assistant/message' && finalMessage.data.message.content)

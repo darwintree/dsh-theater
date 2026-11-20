@@ -1,8 +1,8 @@
 import {
   KNOWN_SESSION_EVENT_TYPES,
-  type JsonValue,
   type SessionEvent,
 } from '@deepseek-ai/dsh-session'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 
 /** Durable Stage configuration record, persisted in `stage/configured`. */
 export interface StageConfigured {

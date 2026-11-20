@@ -1,4 +1,4 @@
-import type { JsonValue } from '@deepseek-ai/dsh-session'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 
 /** One accepted or domain-rejected transition. Program faults throw. */
 export type TransitionResult =

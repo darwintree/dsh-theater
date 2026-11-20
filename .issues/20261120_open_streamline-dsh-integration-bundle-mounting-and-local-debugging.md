@@ -45,14 +45,14 @@ updated_at: "2026-11-20T11:02:00Z"
 
 为了避免改动面过大并保证独立环境可验证，拆分为以下 4 个按顺序执行的子 issue（优先解耦本地 `link:` 依赖，让后续每一步都能直接跑通 `pnpm install && pnpm check`）：
 
-1. [[20261120_open_decouple-dsh-devdependencies-from-hardcoded-local-deepseek-harness-links]]
+1. [[archive/20261120_closed_decouple-dsh-devdependencies-from-hardcoded-local-deepseek-harness-links]]
 2. [[20261120_open_unify-optional-package-dsh-bundles-and-preset-packaging]]
 3. [[20261120_open_generalize-theater-headless-runner-and-add-local-dsh-setup-workflow]]
 4. [[20261120_open_eliminate-src-dist-mixing-and-deduplicate-dsh-test-harness]]
 
 ## Verification Checklist
 
-- [ ] 子 issue 1 完成：独立 checkout 下 `pnpm install && pnpm check` 可直接运行
+- [x] 子 issue 1 完成：独立 checkout 下 `pnpm install && pnpm check` 可直接运行
 - [ ] 子 issue 2 完成：所有可挂载包具备统一的 `dsh.bundle`、`cordis.patch.yml` 与基于包名导出的 `presets/`
 - [ ] 子 issue 3 完成：通用 `@darwintree/dsh-theater/headless`、根目录 `README.md` 与 preset 同步脚本落地
 - [ ] 子 issue 4 完成：测试不再出现 `src/` 与 `dist/` 混跑，并复用共享 DSH test harness

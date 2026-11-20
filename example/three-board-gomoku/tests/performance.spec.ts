@@ -9,6 +9,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import AgentPresets from '@deepseek-ai/dsh-agent-presets'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -68,6 +69,7 @@ describe('three-board Gomoku example', () => {
     ctx.loader.builtins.include = Include
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjections)
     await ctx.plugin(StageService)
     await ctx.plugin(Gomoku)
     await ctx.plugin(SystemPrompt)
@@ -92,7 +94,7 @@ describe('three-board Gomoku example', () => {
     await ctx.theater.create({ performanceId, presetId: 'preset', cwd: ROOT })
     for (let turn = 0; turn < 6; turn += 1) await ctx.theater.advance(performanceId)
 
-    const starts = ctx.sessions.get(performanceId)!.events
+    const starts = ctx.sessions.get(performanceId)!.snapshotEvents()
       .filter(event => event.type === 'theater/segment-started')
       .map(event => event.data.characterId)
     expect(starts).toEqual([
@@ -110,7 +112,7 @@ describe('three-board Gomoku example', () => {
 
     const instructionFor = (characterId: string) => ctx!.sessions
       .get(characterSessionId(performanceId, characterId))!
-      .events
+      .snapshotEvents()
       .flatMap(event => event.type === 'user/message' ? event.data.content : [])
       .flatMap(block => block.type === 'text' ? [block.text] : [])[0]
     const challengerInstruction = instructionFor('challenger1')

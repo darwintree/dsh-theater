@@ -3,6 +3,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import LlmRuntime, { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
@@ -16,6 +17,7 @@ async function setup() {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjections)
   await ctx.plugin(StageService)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
@@ -67,7 +69,7 @@ describe('Gomoku tool', () => {
     expect(blackValue.currentPlayer).toBe('white')
     expect(blackValue.moveNumber).toBe(1)
     expect(blackValue.isFinished).toBe(false)
-    expect(agent.session.events.filter(e => e.type === 'stage/configured')[0]?.data)
+    expect(agent.session.snapshotEvents().filter(e => e.type === 'stage/configured')[0]?.data)
       .toMatchObject({ stageId: 'test-board', machine: 'gomoku', version: '1' })
 
     const white = await ctx.tools.execute({
@@ -86,7 +88,7 @@ describe('Gomoku tool', () => {
     expect(whiteValue.board).toContain('●')
     expect(whiteValue.board).toContain('○')
     // only accepted ops persisted
-    expect(agent.session.events.filter(e => e.type === 'stage/op')).toHaveLength(2)
+    expect(agent.session.snapshotEvents().filter(e => e.type === 'stage/op')).toHaveLength(2)
   })
 
   it('returns a domain rejection as a normal tool result without persisting', async () => {
@@ -111,7 +113,7 @@ describe('Gomoku tool', () => {
     const value = occupied.value as Gomoku.PlaceStoneValue
     expect(value.accepted).toBe(false)
     expect(value.reason).toBe('coordinate is occupied')
-    expect(agent.session.events.filter(e => e.type === 'stage/op')).toHaveLength(1)
+    expect(agent.session.snapshotEvents().filter(e => e.type === 'stage/op')).toHaveLength(1)
   })
 
   it('does not conclude the turn on an accepted move', async () => {

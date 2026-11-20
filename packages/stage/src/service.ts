@@ -1,10 +1,6 @@
 import { Service, type Context } from '@deepseek-ai/cordis'
-import {
-  snapshotJsonValue,
-  type JsonValue,
-  type Session,
-  type SessionEvent,
-} from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import { snapshotJsonValue, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import {
   StageCatalog,
@@ -147,7 +143,8 @@ export class StageService extends Service {
     nonEmpty(factory.version, 'State Machine version')
     const live = this.liveFor(session)
     if (live.has(stageId)) return
-    const configured = configuredEvent(session.events, stageId)
+    const events = session.snapshotEvents()
+    const configured = configuredEvent(events, stageId)
     if (configured !== undefined) {
       if (configured.data.machine !== factory.kind) {
         throw new Error(
@@ -160,7 +157,7 @@ export class StageService extends Service {
         )
       }
       const machine = replayMachine(
-        session.events,
+        events,
         factory,
         stageId,
         configured.data.config,
