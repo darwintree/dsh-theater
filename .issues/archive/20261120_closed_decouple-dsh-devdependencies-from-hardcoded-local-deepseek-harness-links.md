@@ -8,7 +8,7 @@ labels: ["TECH DEBT", "READY-FOR-AGENT"]
 created_at: "2026-11-20T11:02:00Z"
 updated_at: "2026-11-20T11:22:00Z"
 ---
-Parent tracking issue: [[20261120_open_streamline-dsh-integration-bundle-mounting-and-local-debugging]]
+Parent tracking issue: [[archive/20261120_closed_streamline-dsh-integration-bundle-mounting-and-local-debugging]]
 
 ## Problem
 

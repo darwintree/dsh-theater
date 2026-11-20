@@ -2,11 +2,11 @@
 # This section is managed by the CLI. Do not edit manually.
 id: "8e959d2c-7d1f-4141-8cb9-e3d388ec9d13"
 title: "Streamline DSH integration, bundle mounting, and local debugging"
-status: "open"
+status: "closed"
 priority: "high"
 labels: ["TECH DEBT", "READY-FOR-AGENT"]
 created_at: "2026-11-20T11:00:00Z"
-updated_at: "2026-11-20T11:02:00Z"
+updated_at: "2026-11-20T11:36:00Z"
 ---
 ## Problem
 
@@ -43,21 +43,29 @@ updated_at: "2026-11-20T11:02:00Z"
 
 ## Child Issues (Execution Order)
 
-为了避免改动面过大并保证独立环境可验证，拆分为以下 4 个按顺序执行的子 issue（优先解耦本地 `link:` 依赖，让后续每一步都能直接跑通 `pnpm install && pnpm check`）：
-
 1. [[archive/20261120_closed_decouple-dsh-devdependencies-from-hardcoded-local-deepseek-harness-links]]
 2. [[archive/20261120_closed_unify-optional-package-dsh-bundles-and-preset-packaging]]
 3. [[archive/20261120_closed_generalize-theater-headless-runner-and-add-local-dsh-setup-workflow]]
-4. [[20261120_open_eliminate-src-dist-mixing-and-deduplicate-dsh-test-harness]]
+4. [[archive/20261120_closed_eliminate-src-dist-mixing-and-deduplicate-dsh-test-harness]]
 
 ## Verification Checklist
 
 - [x] 子 issue 1 完成：独立 checkout 下 `pnpm install && pnpm check` 可直接运行
 - [x] 子 issue 2 完成：所有可挂载包具备统一的 `dsh.bundle`、`cordis.patch.yml` 与基于包名导出的 `presets/`
 - [x] 子 issue 3 完成：通用 `@darwintree/dsh-theater/headless`、根目录 `README.md` 与 preset 同步脚本落地
-- [ ] 子 issue 4 完成：测试不再出现 `src/` 与 `dist/` 混跑，并复用共享 DSH test harness
+- [x] 子 issue 4 完成：测试不再出现 `src/` 与 `dist/` 混跑，并复用共享 DSH test harness
+
+## Resolution
+
+4 个子 issue 已全部按序落地并通过验证：
+
+- 独立环境支持 `pnpm install --frozen-lockfile && pnpm check`，并通过 `scripts/dsh-local-links.mjs` 保留可选本地 `deepseek-harness` 联调路径；
+- 全部 5 个可挂载包统一声明 `dsh.bundle.patch` + `cordis.patch.yml`，全部 4 个 shipped preset 统一落在 `presets/<id>/` 并改用包名子路径；
+- `@darwintree/dsh-theater/headless` 支持任意 `--preset` / `--max-segments` / `--cwd` / `--performance-id`，配合 `packages/theater/headless.cordis.patch.yml`、`pnpm presets:sync` 与根目录 `README.md` 打通本地 Web/Headless 联调；
+- `vitest.config.ts` + `tests/harness.ts` 实现全链路源码直连（`pnpm clean && pnpm test` 61/61 通过）与共享测试装配，`pnpm check`（含 `tests/built-exports.spec.ts`）62/62 全绿。
 
 ## Progress Log
 
 - 2026-11-20: 梳理 `refactor` 分支全部包的 DSH 集成、bundle/preset 声明、headless 启动与测试链路，记录 7 类现状问题并拆分为 4 个推进阶段。
 - 2026-11-20: 确认所需 `@deepseek-ai/*` 包均已发布到 npm，将工作拆为 4 个 `READY-FOR-AGENT` 子 issue 并调整执行顺序（先解耦 `link:` 依赖以打通独立构建与验证闭环）。
+- 2026-11-20: 全部 4 个子 issue 已完成并归档，全量 `pnpm clean && pnpm test` 与 `pnpm check` 验收通过，关闭并归档总 issue。

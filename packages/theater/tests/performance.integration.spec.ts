@@ -1,26 +1,17 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
-import { Context } from '@deepseek-ai/cordis'
-import Include from '@deepseek-ai/cordis-plugin-include'
-import Loader from '@deepseek-ai/cordis-plugin-loader'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-import AgentDefaultModel from '@deepseek-ai/dsh-agent-default-model'
-import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import AgentPresets from '@deepseek-ai/dsh-agent-presets'
-import LlmRuntime, { LlmError } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
-import SessionProjections from '@deepseek-ai/dsh-session-projection'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
+import { fileURLToPath } from 'node:url'
+import type { Context } from '@deepseek-ai/cordis'
+import { LlmError } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
 import { MockLlmAdapter, type Behaviour, type MockResponse } from '@darwintree/dsh-llm-mock'
-import StageService from '@darwintree/dsh-stage'
-import * as Gomoku from '../../theater-gomoku/src/index.ts'
-import * as GomokuTheater from '../../theater-gomoku/src/theater.ts'
-import TheaterService, { characterSessionId } from '../src/index.ts'
+import * as Gomoku from '@darwintree/dsh-theater-gomoku'
+import * as GomokuTheater from '@darwintree/dsh-theater-gomoku/theater'
+import { characterSessionId } from '@darwintree/dsh-theater'
+import { createDshTestContext, extractSystemPrompt } from '../../../tests/harness.ts'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 
@@ -75,31 +66,18 @@ async function setup(
     mountTheater?: boolean
   } = {},
 ): Promise<Context> {
-  const ctx = new Context()
-  ctx.baseUrl = pathToFileURL(FIXTURES).href + '/'
-  await ctx.plugin(Loader)
-  ctx.loader.builtins.include = Include
-  await ctx.plugin(LlmRuntime)
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(SessionProjections)
-  if (options.persistenceRoot !== undefined) {
-    await ctx.plugin(JsonlSessionPersistence, {
-      root: options.persistenceRoot,
-      compression: 'none',
-    })
-  }
-  await ctx.plugin(StageService)
-  await ctx.plugin(Gomoku)
-  await ctx.plugin(SystemPrompt, { personaPrefix: 'Host default persona.' })
-  await ctx.plugin(ToolRuntime)
-  await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentLoop, { agents: [], maxParallelToolCalls: 1 })
-  await ctx.plugin(AgentDefaultModel, { provider: 'mock', model: 'scripted' })
-  await ctx.plugin(AgentPresets, {
-    default: options.defaultPreset ?? 'two-character-gomoku',
-    roots: [{ path: options.presetRoot ?? join(FIXTURES, 'presets'), trust: 'system' }],
-    includeUserRoot: false,
+  const ctx = await createDshTestContext({
+    baseDir: FIXTURES,
+    ...options.persistenceRoot === undefined ? {} : { persistenceRoot: options.persistenceRoot },
+    personaPrefix: 'Host default persona.',
+    maxParallelToolCalls: 1,
+    presets: {
+      default: options.defaultPreset ?? 'two-character-gomoku',
+      roots: [{ path: options.presetRoot ?? join(FIXTURES, 'presets'), trust: 'system' }],
+    },
+    mountTheater: options.mountTheater ?? true,
   })
+  await ctx.plugin(Gomoku)
   ctx.llm.registerAdapter(['mock'], new MockLlmAdapter(behaviour ?? (options =>
     moveScript(
       String(options.sessionId),
@@ -107,7 +85,6 @@ async function setup(
       plan,
     ))))
   if (options.mountTheater !== false) {
-    await ctx.plugin(TheaterService)
     await ctx.plugin(GomokuTheater)
   }
   return ctx
@@ -127,10 +104,8 @@ async function writeCompatibilityPresets(
     boardSize: number
   },
 ): Promise<void> {
-  const stagePreset = join(FIXTURES, '..', '..', '..', 'stage', 'dist', 'preset.js')
-  const theaterPreset = join(FIXTURES, '..', '..', 'dist', 'preset.js')
   const director = config.director === 'gomoku'
-    ? join(FIXTURES, '..', '..', '..', 'theater-gomoku', 'dist', 'director.js')
+    ? '@darwintree/dsh-theater-gomoku/director'
     : join(FIXTURES, 'plugins', 'complete-director.js')
   const rows = config.characters.flatMap(character => [
     `      ${character.id}:`,
@@ -146,14 +121,14 @@ async function writeCompatibilityPresets(
   await mkdir(join(root, 'compat'), { recursive: true })
   await writeFile(join(root, 'compat', 'agent.cordis.yml'), [
     '- id: stages',
-    `  name: ${JSON.stringify(stagePreset)}`,
+    "  name: '@darwintree/dsh-stage/preset'",
     '  config:',
     '    stages:',
     '      board1:',
     '        machine: gomoku',
     `        params: { boardSize: ${config.boardSize}, winLength: 3 }`,
     '- id: performance',
-    `  name: ${JSON.stringify(theaterPreset)}`,
+    "  name: '@darwintree/dsh-theater/preset'",
     '  config:',
     ...config.autoAdvance === undefined ? [] : [`    autoAdvance: ${config.autoAdvance}`],
     '    characters:',
@@ -174,12 +149,7 @@ describe('Performance Theater', () => {
     const systems = new Map<string, string | undefined>()
     const ctx = await setup(defaultPlan, (options) => {
       const sessionId = String(options.sessionId)
-      const systemMessage = options.messages.find(message => message.role === 'system')
-      const systemText = options.system ?? systemMessage?.content
-        .filter(block => block.type === 'text')
-        .map(block => block.text)
-        .join('\n')
-      systems.set(sessionId, systemText)
+      systems.set(sessionId, extractSystemPrompt(options))
       return moveScript(
         sessionId,
         options.messages.filter(message => message.role === 'assistant').length,

@@ -1,25 +1,15 @@
 import { dirname, join } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
-import { Context } from '@deepseek-ai/cordis'
-import Include from '@deepseek-ai/cordis-plugin-include'
-import Loader from '@deepseek-ai/cordis-plugin-loader'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-import AgentDefaultModel from '@deepseek-ai/dsh-agent-default-model'
-import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import AgentPresets from '@deepseek-ai/dsh-agent-presets'
-import LlmRuntime from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import SessionProjections from '@deepseek-ai/dsh-session-projection'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
+import { fileURLToPath } from 'node:url'
+import type { Context } from '@deepseek-ai/cordis'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MockLlmAdapter, type MockResponse } from '@darwintree/dsh-llm-mock'
-import StageService from '@darwintree/dsh-stage'
-import TheaterService, { characterSessionId } from '@darwintree/dsh-theater'
+import { characterSessionId } from '@darwintree/dsh-theater'
 import * as Gomoku from '@darwintree/dsh-theater-gomoku'
 import * as GomokuTheater from '@darwintree/dsh-theater-gomoku/theater'
-import * as Example from '../src/index.ts'
-import { createDirector } from '../src/director.ts'
+import * as Example from '@darwintree/dsh-theater-example-three-board-gomoku'
+import { createDirector } from '@darwintree/dsh-theater-example-three-board-gomoku/director'
+import { createDshTestContext } from '../../../tests/harness.ts'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 let ctx: Context | undefined
@@ -63,30 +53,18 @@ afterEach(async () => {
 
 describe('three-board Gomoku example', () => {
   it('returns to the Master until all three black moves have white replies', async () => {
-    ctx = new Context()
-    ctx.baseUrl = pathToFileURL(ROOT).href + '/'
-    await ctx.plugin(Loader)
-    ctx.loader.builtins.include = Include
-    await ctx.plugin(LlmRuntime)
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionProjections)
-    await ctx.plugin(StageService)
-    await ctx.plugin(Gomoku)
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRuntime)
-    await ctx.plugin(AgentRegistry)
-    await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(AgentDefaultModel, { provider: 'mock', model: 'scripted' })
-    await ctx.plugin(AgentPresets, {
-      default: 'three-board-gomoku',
-      roots: [{ path: join(ROOT, 'presets'), trust: 'system' }],
-      includeUserRoot: false,
+    ctx = await createDshTestContext({
+      baseDir: ROOT,
+      presets: {
+        default: 'three-board-gomoku',
+        roots: [{ path: join(ROOT, 'presets'), trust: 'system' }],
+      },
     })
+    await ctx.plugin(Gomoku)
     ctx.llm.registerAdapter(['mock'], new MockLlmAdapter(options => response(
       String(options.sessionId),
       options.messages.filter(message => message.role === 'assistant').length,
     )))
-    await ctx.plugin(TheaterService)
     await ctx.plugin(GomokuTheater)
     await ctx.plugin(Example)
 

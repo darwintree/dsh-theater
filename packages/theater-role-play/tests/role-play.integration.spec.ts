@@ -1,33 +1,21 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
-import { Context } from '@deepseek-ai/cordis'
-import Include from '@deepseek-ai/cordis-plugin-include'
-import Loader from '@deepseek-ai/cordis-plugin-loader'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-import AgentDefaultModel from '@deepseek-ai/dsh-agent-default-model'
-import * as AgentInstructions from '@deepseek-ai/dsh-agent-instructions'
-import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import AgentPresets from '@deepseek-ai/dsh-agent-presets'
-import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
-import LlmRuntime, {
+import { fileURLToPath } from 'node:url'
+import type { Context } from '@deepseek-ai/cordis'
+import {
   LlmAdapter,
   ReasoningEffortId,
   type ContentBlock,
   type LlmResolvedModelInfo,
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
-import SessionProjections from '@deepseek-ai/dsh-session-projection'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
+import { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
 import { MockLlmAdapter, type Behaviour, type MockResponse } from '@darwintree/dsh-llm-mock'
-import StageService from '@darwintree/dsh-stage'
-import TheaterService, { characterSessionId } from '@darwintree/dsh-theater'
-import * as RolePlay from '../src/index.ts'
+import { characterSessionId } from '@darwintree/dsh-theater'
+import * as RolePlay from '@darwintree/dsh-theater-role-play'
+import { createDshTestContext, extractSystemPrompt } from '../../../tests/harness.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 function blockText(blocks: readonly ContentBlock[]): string {
@@ -78,32 +66,19 @@ async function setup(behaviour: Behaviour, persistenceRoot?: string): Promise<Co
   const presetsRoot = join(packageRoot, 'presets')
   const dshHome = await mkdtemp(join(tmpdir(), 'role-play-home-'))
 
-  const ctx = new Context()
-  ctx.baseUrl = pathToFileURL(packageRoot).href + '/'
-  await ctx.plugin(Loader)
-  ctx.loader.builtins.include = Include
-  await ctx.plugin(LlmRuntime)
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(SessionProjections)
-  if (persistenceRoot !== undefined) {
-    await ctx.plugin(JsonlSessionPersistence, { root: persistenceRoot, compression: 'none' })
-  }
-  await ctx.plugin(StageService)
-  await ctx.plugin(SystemPrompt, { personaPrefix: 'Host persona.' })
-  ctx.systemPrompt.context({ name: 'test:ambient', order: 0, text: 'ambient runtime context' })
-  await ctx.plugin(LocalFileSystem, { cwd: '/' })
-  await ctx.plugin(AgentInstructions, { dshHome, maxBytes: 65536 })
-  await ctx.plugin(ToolRuntime)
-  await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentLoop, { agents: [], maxParallelToolCalls: 1 })
-  await ctx.plugin(AgentDefaultModel, { provider: 'mock', model: 'scripted' })
-  await ctx.plugin(AgentPresets, {
-    default: 'role-play-v3',
-    roots: [{ path: presetsRoot, trust: 'system' }],
-    includeUserRoot: false,
+  const ctx = await createDshTestContext({
+    baseDir: packageRoot,
+    ...persistenceRoot === undefined ? {} : { persistenceRoot },
+    personaPrefix: 'Host persona.',
+    ambientContext: { name: 'test:ambient', order: 0, text: 'ambient runtime context' },
+    agentInstructions: { dshHome, maxBytes: 65536, fsCwd: '/' },
+    maxParallelToolCalls: 1,
+    presets: {
+      default: 'role-play-v3',
+      roots: [{ path: presetsRoot, trust: 'system' }],
+    },
   })
   ctx.llm.registerAdapter(['commandcode'], new RolePlayMockAdapter(behaviour))
-  await ctx.plugin(TheaterService)
   await ctx.plugin(RolePlay)
   return ctx
 }
@@ -113,12 +88,7 @@ describe('Stage-free Role-play', () => {
     const systems = new Map<string, string | undefined>()
     const behaviour: Behaviour = (options): MockResponse => {
       const sessionId = String(options.sessionId)
-      const systemMessage = options.messages.find(message => message.role === 'system')
-      const systemText = options.system ?? systemMessage?.content
-        .filter(block => block.type === 'text')
-        .map(block => block.text)
-        .join('\n')
-      systems.set(sessionId, systemText)
+      systems.set(sessionId, extractSystemPrompt(options))
       const user = latestUserText(options)
       if (sessionId.endsWith('/characters/dm')) {
         const count = options.messages.filter(message => message.role === 'assistant').length

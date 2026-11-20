@@ -1,23 +1,13 @@
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import Include, { type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-import AgentDefaultModel from '@deepseek-ai/dsh-agent-default-model'
-import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import AgentPresets from '@deepseek-ai/dsh-agent-presets'
-import LlmRuntime from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
-import SessionProjections from '@deepseek-ai/dsh-session-projection'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
-
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+import { createDshTestContext, installWorkspaceSourceLoader, REPO_ROOT } from './harness.ts'
 
 const MOUNTABLE_PACKAGES = [
   { dir: 'packages/stage', name: '@darwintree/dsh-stage', hasPresets: false },
@@ -146,6 +136,7 @@ describe('DSH bundles and shipped presets', () => {
     ctx.baseUrl = `${pathToFileURL(REPO_ROOT).href}/`
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
+    installWorkspaceSourceLoader(ctx)
 
     const includeId = await ctx.loader.create({
       name: 'cordis:include',
@@ -185,33 +176,18 @@ describe('DSH bundles and shipped presets', () => {
       await cp(join(REPO_ROOT, preset.dir), join(externalPresetsRoot, preset.id), { recursive: true })
     }
 
-    ctx = new Context()
-    ctx.baseUrl = `${pathToFileURL(REPO_ROOT).href}/`
-    await ctx.plugin(Loader)
-    ctx.loader.builtins.include = Include
-    await ctx.plugin(LlmRuntime)
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionProjections)
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRuntime)
-    await ctx.plugin(AgentRegistry)
-    await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(AgentDefaultModel, { provider: 'mock', model: 'scripted' })
-    await ctx.plugin(AgentPresets, {
-      default: 'gomoku',
-      roots: [{ path: externalPresetsRoot, trust: 'system' }],
-      includeUserRoot: false,
+    ctx = await createDshTestContext({
+      presets: {
+        default: 'gomoku',
+        roots: [{ path: externalPresetsRoot, trust: 'system' }],
+      },
     })
 
-    const stagePlugin = await import('@darwintree/dsh-stage')
-    const theaterPlugin = await import('@darwintree/dsh-theater')
     const gomokuPlugin = await import('@darwintree/dsh-theater-gomoku')
     const gomokuTheaterPlugin = await import('@darwintree/dsh-theater-gomoku/theater')
     const rolePlayPlugin = await import('@darwintree/dsh-theater-role-play')
     const threeBoardPlugin = await import('@darwintree/dsh-theater-example-three-board-gomoku')
 
-    await ctx.plugin(stagePlugin.default)
-    await ctx.plugin(theaterPlugin.default)
     await ctx.plugin(gomokuPlugin)
     await ctx.plugin(gomokuTheaterPlugin)
     await ctx.plugin(rolePlayPlugin)

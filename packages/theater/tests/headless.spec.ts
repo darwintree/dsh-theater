@@ -1,24 +1,13 @@
 import { dirname, join } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
-import { Context } from '@deepseek-ai/cordis'
-import Include from '@deepseek-ai/cordis-plugin-include'
-import Loader from '@deepseek-ai/cordis-plugin-loader'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-import AgentDefaultModel from '@deepseek-ai/dsh-agent-default-model'
-import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import AgentPresets from '@deepseek-ai/dsh-agent-presets'
-import LlmRuntime from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import SessionProjections from '@deepseek-ai/dsh-session-projection'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
+import { fileURLToPath } from 'node:url'
+import type { Context } from '@deepseek-ai/cordis'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MockLlmAdapter } from '@darwintree/dsh-llm-mock'
-import StageService from '@darwintree/dsh-stage'
-import * as Gomoku from '../../theater-gomoku/src/index.ts'
-import * as GomokuTheater from '../../theater-gomoku/src/theater.ts'
-import TheaterService from '../src/index.ts'
-import { apply as applyHeadless, parseHeadlessOptions, runHeadless } from '../src/headless.ts'
+import * as Gomoku from '@darwintree/dsh-theater-gomoku'
+import * as GomokuTheater from '@darwintree/dsh-theater-gomoku/theater'
+import { apply as applyHeadless, parseHeadlessOptions, runHeadless } from '@darwintree/dsh-theater/headless'
+import { createDshTestContext } from '../../../tests/harness.ts'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 
@@ -30,25 +19,15 @@ afterEach(async () => {
 })
 
 async function setupHeadlessContext(): Promise<Context> {
-  const local = new Context()
-  local.baseUrl = `${pathToFileURL(FIXTURES).href}/`
-  await local.plugin(Loader)
-  local.loader.builtins.include = Include
-  await local.plugin(LlmRuntime)
-  await local.plugin(SessionStore)
-  await local.plugin(SessionProjections)
-  await local.plugin(StageService)
-  await local.plugin(Gomoku)
-  await local.plugin(SystemPrompt)
-  await local.plugin(ToolRuntime)
-  await local.plugin(AgentRegistry)
-  await local.plugin(AgentLoop, { agents: [], maxParallelToolCalls: 1 })
-  await local.plugin(AgentDefaultModel, { provider: 'mock', model: 'scripted' })
-  await local.plugin(AgentPresets, {
-    default: 'two-character-gomoku',
-    roots: [{ path: join(FIXTURES, 'presets'), trust: 'system' }],
-    includeUserRoot: false,
+  const local = await createDshTestContext({
+    baseDir: FIXTURES,
+    maxParallelToolCalls: 1,
+    presets: {
+      default: 'two-character-gomoku',
+      roots: [{ path: join(FIXTURES, 'presets'), trust: 'system' }],
+    },
   })
+  await local.plugin(Gomoku)
   local.llm.registerAdapter(['mock'], new MockLlmAdapter((options) => {
     const sessionId = String(options.sessionId)
     const count = options.messages.filter(message => message.role === 'assistant').length
@@ -70,7 +49,6 @@ async function setupHeadlessContext(): Promise<Context> {
       ? { content: [{ type: 'tool-call', id: `${sessionId}-read-${count}`, name: 'read_board', arguments: '{}' }] }
       : { content: [{ type: 'tool-call', id: `${sessionId}-move-${count}`, name: 'place_stone', arguments: JSON.stringify({ x: move[0], y: move[1] }) }] }
   }))
-  await local.plugin(TheaterService)
   await local.plugin(GomokuTheater)
   ctx = local
   return local
