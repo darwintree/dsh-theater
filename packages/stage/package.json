@@ -13,7 +13,9 @@
     "./preset": {
       "types": "./dist/preset.d.ts",
       "default": "./dist/preset.js"
-    }
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

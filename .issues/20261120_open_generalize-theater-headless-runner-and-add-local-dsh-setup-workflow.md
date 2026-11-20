@@ -9,7 +9,7 @@ created_at: "2026-11-20T11:02:00Z"
 updated_at: "2026-11-20T11:02:00Z"
 ---
 Parent tracking issue: [[20261120_open_streamline-dsh-integration-bundle-mounting-and-local-debugging]]
-Depends on: [[20261120_open_unify-optional-package-dsh-bundles-and-preset-packaging]]
+Depends on: [[archive/20261120_closed_unify-optional-package-dsh-bundles-and-preset-packaging]]
 
 ## Problem
 

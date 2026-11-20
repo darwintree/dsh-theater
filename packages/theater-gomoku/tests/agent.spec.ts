@@ -33,8 +33,8 @@ describe('Gomoku agent integration', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(AgentPresets, {
-      default: 'preset',
-      roots: [{ path: PACKAGE_ROOT, trust: 'system' }],
+      default: 'gomoku',
+      roots: [{ path: join(PACKAGE_ROOT, 'presets'), trust: 'system' }],
       includeUserRoot: false,
     })
     await ctx.plugin(MockLlm, {
@@ -66,7 +66,7 @@ describe('Gomoku agent integration', () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('gomoku-agent'),
       agentOptions: { provider: 'mock', model: 'scripted' },
-      setup: async agentCtx => void await ctx.agentPresets.mount(agentCtx, 'preset'),
+      setup: async agentCtx => void await ctx.agentPresets.mount(agentCtx, 'gomoku'),
     })
     const agent = handle.agent
     expect(ctx.tools.schemas(agent).map(tool => tool.name)).toContain('place_stone')

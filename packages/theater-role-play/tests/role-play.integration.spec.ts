@@ -74,14 +74,12 @@ class RolePlayMockAdapter extends LlmAdapter {
 }
 
 async function setup(behaviour: Behaviour, persistenceRoot?: string): Promise<Context> {
-  const presetRoot = await mkdtemp(join(tmpdir(), 'role-play-preset-'))
-  const preset = join(presetRoot, 'v3')
-  await mkdir(preset)
-  const plugin = fileURLToPath(new URL('../dist/preset.js', import.meta.url))
-  await writeFile(join(preset, 'agent.cordis.yml'), `- id: v3\n  name: ${JSON.stringify(plugin)}\n`)
+  const packageRoot = join(here, '..')
+  const presetsRoot = join(packageRoot, 'presets')
+  const dshHome = await mkdtemp(join(tmpdir(), 'role-play-home-'))
 
   const ctx = new Context()
-  ctx.baseUrl = pathToFileURL(here).href + '/'
+  ctx.baseUrl = pathToFileURL(packageRoot).href + '/'
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
   await ctx.plugin(LlmRuntime)
@@ -94,14 +92,14 @@ async function setup(behaviour: Behaviour, persistenceRoot?: string): Promise<Co
   await ctx.plugin(SystemPrompt, { personaPrefix: 'Host persona.' })
   ctx.systemPrompt.context({ name: 'test:ambient', order: 0, text: 'ambient runtime context' })
   await ctx.plugin(LocalFileSystem, { cwd: '/' })
-  await ctx.plugin(AgentInstructions, { dshHome: presetRoot, maxBytes: 65536 })
+  await ctx.plugin(AgentInstructions, { dshHome, maxBytes: 65536 })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [], maxParallelToolCalls: 1 })
   await ctx.plugin(AgentDefaultModel, { provider: 'mock', model: 'scripted' })
   await ctx.plugin(AgentPresets, {
-    default: 'v3',
-    roots: [{ path: presetRoot, trust: 'system' }],
+    default: 'role-play-v3',
+    roots: [{ path: presetsRoot, trust: 'system' }],
     includeUserRoot: false,
   })
   ctx.llm.registerAdapter(['commandcode'], new RolePlayMockAdapter(behaviour))
@@ -168,7 +166,7 @@ describe('Stage-free Role-play', () => {
 
     const ctx = await setup(behaviour)
     const performanceId = SessionId('role-play-success')
-    await ctx.theater.create({ performanceId, presetId: 'v3', cwd: here })
+    await ctx.theater.create({ performanceId, presetId: 'role-play-v3', cwd: here })
     await ctx.theater.whenIdle(performanceId)
 
     for (const character of ['dm', 'saber', 'rider', 'archer']) {
@@ -328,7 +326,7 @@ describe('Stage-free Role-play', () => {
 
     const ctx = await setup(behaviour)
     const performanceId = SessionId('role-play-voice-over-guidance')
-    await ctx.theater.create({ performanceId, presetId: 'v3', cwd: here })
+    await ctx.theater.create({ performanceId, presetId: 'role-play-v3', cwd: here })
     await ctx.theater.whenIdle(performanceId)
 
     const dm = ctx.sessions.get(characterSessionId(performanceId, 'dm'))!
@@ -370,7 +368,7 @@ describe('Stage-free Role-play', () => {
 
     const ctx = await setup(behaviour)
     const performanceId = SessionId('role-play-repair')
-    await ctx.theater.create({ performanceId, presetId: 'v3', cwd: here })
+    await ctx.theater.create({ performanceId, presetId: 'role-play-v3', cwd: here })
     await ctx.theater.whenIdle(performanceId)
 
     const dm = ctx.sessions.get(characterSessionId(performanceId, 'dm'))!
@@ -410,7 +408,7 @@ describe('Stage-free Role-play', () => {
 
     const ctx = await setup(behaviour)
     const performanceId = SessionId('role-play-nested-failure')
-    await ctx.theater.create({ performanceId, presetId: 'v3', cwd: here })
+    await ctx.theater.create({ performanceId, presetId: 'role-play-v3', cwd: here })
     await expect(ctx.theater.whenIdle(performanceId)).rejects.toThrow('Character action aborted')
 
     expect(ctx.theater.read(performanceId).phase).toBe('failed')
@@ -457,7 +455,7 @@ describe('Stage-free Role-play', () => {
 
     const ctx = await setup(behaviour)
     const performanceId = SessionId('role-play-duplicate-perception')
-    await ctx.theater.create({ performanceId, presetId: 'v3', cwd: here })
+    await ctx.theater.create({ performanceId, presetId: 'role-play-v3', cwd: here })
     await ctx.theater.whenIdle(performanceId)
 
     const performance = ctx.sessions.get(performanceId)!
@@ -479,7 +477,7 @@ describe('Stage-free Role-play', () => {
   it('stops after three incomplete top-level DM Turns', async () => {
     const ctx = await setup(() => ({ content: [{ type: 'text', text: 'DM 尚未提交结构化裁定。' }] }))
     const performanceId = SessionId('role-play-top-level-failure')
-    await ctx.theater.create({ performanceId, presetId: 'v3', cwd: here })
+    await ctx.theater.create({ performanceId, presetId: 'role-play-v3', cwd: here })
     await expect(ctx.theater.whenIdle(performanceId)).rejects.toThrow('DM 连续三轮未完成顶层裁定')
 
     const performance = ctx.sessions.get(performanceId)!
@@ -544,7 +542,7 @@ describe('Stage-free Role-play', () => {
 
     const ctx = await setup(behaviour)
     const performanceId = SessionId('role-play-visibility')
-    await ctx.theater.create({ performanceId, presetId: 'v3', cwd: here })
+    await ctx.theater.create({ performanceId, presetId: 'role-play-v3', cwd: here })
     await ctx.theater.whenIdle(performanceId)
 
     const dm = ctx.sessions.get(characterSessionId(performanceId, 'dm'))!
@@ -618,7 +616,7 @@ describe('Stage-free Role-play', () => {
         stopped = true
         writer.theater.setAutoAdvance(performanceId, false)
       })
-      await writer.theater.create({ performanceId, presetId: 'v3', cwd: here })
+      await writer.theater.create({ performanceId, presetId: 'role-play-v3', cwd: here })
       await writer.theater.whenIdle(performanceId)
       expect(writer.theater.read(performanceId)).toMatchObject({ phase: 'active', autoAdvance: false, stages: {} })
       await writer.fiber.dispose()

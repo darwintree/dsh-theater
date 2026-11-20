@@ -13,13 +13,15 @@
     "./director": {
       "types": "./dist/director.d.ts",
       "default": "./dist/director.js"
-    }
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
-    "preset",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "presets"
   ],
   "dsh": {
     "bundle": {

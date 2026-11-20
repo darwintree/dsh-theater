@@ -17,7 +17,9 @@
     "./headless": {
       "types": "./dist/headless.d.ts",
       "default": "./dist/headless.js"
-    }
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

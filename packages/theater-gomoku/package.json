@@ -21,11 +21,12 @@
     "./theater": {
       "types": "./dist/theater.d.ts",
       "default": "./dist/theater.js"
-    }
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
-    "preset",
     "presets",
     "cordis.patch.yml",
     "headless.cordis.patch.yml",

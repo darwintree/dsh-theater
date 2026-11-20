@@ -1,4 +1,4 @@
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import Include from '@deepseek-ai/cordis-plugin-include'
@@ -78,8 +78,8 @@ describe('three-board Gomoku example', () => {
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(AgentDefaultModel, { provider: 'mock', model: 'scripted' })
     await ctx.plugin(AgentPresets, {
-      default: 'preset',
-      roots: [{ path: ROOT, trust: 'system' }],
+      default: 'three-board-gomoku',
+      roots: [{ path: join(ROOT, 'presets'), trust: 'system' }],
       includeUserRoot: false,
     })
     ctx.llm.registerAdapter(['mock'], new MockLlmAdapter(options => response(
@@ -91,7 +91,7 @@ describe('three-board Gomoku example', () => {
     await ctx.plugin(Example)
 
     const performanceId = SessionId('three-board-example')
-    await ctx.theater.create({ performanceId, presetId: 'preset', cwd: ROOT })
+    await ctx.theater.create({ performanceId, presetId: 'three-board-gomoku', cwd: ROOT })
     for (let turn = 0; turn < 6; turn += 1) await ctx.theater.advance(performanceId)
 
     const starts = ctx.sessions.get(performanceId)!.snapshotEvents()

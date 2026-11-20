@@ -20,14 +20,18 @@
     "./v3": {
       "types": "./dist/preset.d.ts",
       "default": "./dist/preset.js"
-    }
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "!dist/.tsbuildinfo",
     "preset",
     "scripts",
-    "README.md"
+    "README.md",
+    "presets",
+    "cordis.patch.yml"
   ],
   "dependencies": {
     "yaml": "^2.9.0"
@@ -61,5 +65,10 @@
     "@deepseek-ai/dsh-tools": "0.1.5-rc.3",
     "@deepseek-ai/dsh-util-values": "0.1.5-rc.3",
     "@deepseek-ai/dsh-session-projection": "0.1.5-rc.3"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
   }
 }
