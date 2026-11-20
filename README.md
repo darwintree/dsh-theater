@@ -56,12 +56,53 @@ Deliberately deferred:
 - generic tool-message projection;
 - UI and transport adapters.
 
+## Loading in DSH
+
+Each mountable package declares a DSH bundle manifest (`dsh.bundle.patch` -> `./cordis.patch.yml`), so users and developers can mount the core service together with any subset of optional scenario packages:
+
+```bash
+pnpm build
+
+# Link the core runtime and the optional Gomoku scenario into a DSH profile
+dsh plugin --profile theater-dev add ./packages/theater ./packages/theater-gomoku
+
+# Inspect the composed Cordis configuration before starting
+dsh --profile theater-dev --dump-config
+dsh --profile theater-dev
+```
+
+Because Cordis activates plugins by service availability (`inject = ['theater']`), bundle order does not matter. An installed optional package can also be turned off in the profile's `cordis.patch.yml` without uninstalling it:
+
+```yaml
+- id: theater-gomoku
+  disabled: true
+```
+
+For quick ad-hoc testing without modifying a profile, pass an overlay via `--patch` using absolute paths to the built entries while running `pnpm build:watch`:
+
+```yaml
+# dev.patch.yml (replace with your local absolute paths)
+- insert:
+    - id: theater
+      name: '/abs/path/to/dsh-theater/packages/theater/dist/index.js'
+    - id: theater-gomoku
+      name: '/abs/path/to/dsh-theater/packages/theater-gomoku/dist/index.js'
+```
+
+```bash
+dsh --dump-config --patch ./dev.patch.yml
+dsh web --patch ./dev.patch.yml
+```
+
 ## Development
 
 ```bash
 corepack enable
 pnpm install
-pnpm check
+pnpm test        # Vitest resolves workspace packages directly from src/
+pnpm test:watch  # Watch mode for fast local debugging
+pnpm build:watch # Incremental dist/ rebuilds when testing inside a linked DSH profile
+pnpm check       # Typecheck/build (tsc -b) + full unit & Cordis Loader composition tests
 ```
 
 The workspace currently pins the DSH release-candidate versions used by `deepseek-ai/deepseek-harness`. Update the pins together while that API remains pre-release.
