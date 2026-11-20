@@ -2,9 +2,9 @@
 
 A Gomoku Stage integration with two composition modes:
 
-- `preset/` keeps the direct Single-Agent game.
-- `presets/` provides a Theater Performance with independent black and white
-  Character Sessions and one Performance-owned board.
+- `presets/gomoku/` provides the direct Single-Agent game.
+- `presets/two-character-gomoku/` provides a Theater Performance with independent
+  black and white Character Sessions and one Performance-owned board.
 
 The State Machine owns the board and Gomoku rules. The Stage Service owns its
 persistence and replay.
@@ -32,75 +32,46 @@ The Theater preset gives black `read_board` plus a color-bound
 also applies each Character's preset-declared System Prompt and materializes
 those Tools against the Performance-owned board.
 
-## Presets
+## Presets & DSH Loading
 
-`preset/` provides the direct Gomoku entry for the Harness Web preset picker. The
-following follows the Harness profile/plugin flow and assumes this repository
-and `deepseek-harness` are siblings.
-
-Build this workspace:
+Build the workspace, mount the core and Gomoku bundles into a DSH profile, and
+sync the shipped presets (see also the root [README](../../README.md)):
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm build
-```
 
-Install the Stage, Theater, and Gomoku bundles:
+dsh plugin --profile theater-dev add \
+  ./packages/stage \
+  ./packages/theater \
+  ./packages/theater-gomoku
 
-```sh
-cd ../deepseek-harness
-pnpm dsh plugin --profile web add \
-  link:../dsh-theater-new/packages/stage \
-  link:../dsh-theater-new/packages/theater \
-  link:../dsh-theater-new/packages/theater-gomoku
-```
-
-Harness discovers user presets from `$DSH_HOME/.agent-presets` (defaulting to
-`~/.dsh/.agent-presets`). Copy the shipped preset there from the
-`dsh-theater-new` checkout:
-
-```sh
-cd ../dsh-theater-new
-mkdir -p "${DSH_HOME:-$HOME/.dsh}/.agent-presets/gomoku"
-cp packages/theater-gomoku/preset/*.yml \
-  "${DSH_HOME:-$HOME/.dsh}/.agent-presets/gomoku/"
-
-cp -R packages/theater-gomoku/presets/* \
-  "${DSH_HOME:-$HOME/.dsh}/.agent-presets/"
+pnpm presets:sync -- --only gomoku,two-character-gomoku
 ```
 
 Verify the composed profile, then start Web:
 
 ```sh
-cd ../deepseek-harness
-pnpm dsh web --dump-config
-pnpm dsh web
+dsh --profile theater-dev --dump-config
+dsh --profile theater-dev
 ```
 
-Choose **Gomoku** for the direct Agent mode. Two-Character Gomoku is
-created through `ctx.theater` with preset ID `two-character-gomoku`.
+Choose **Gomoku** for the direct Agent mode. Two-Character Gomoku is created
+through `ctx.theater` with preset ID `two-character-gomoku`.
 
-To smoke-test one Performance without Web, install the same three bundles in
-the `headless` profile, copy the presets as above, then replace DSH's ordinary
-one-Agent runner with the supplied patch:
+To smoke-test one Performance in headless mode without Web, use the generic
+Theater headless patch:
 
 ```sh
-cd ../deepseek-harness
-pnpm dsh plugin --profile headless add \
-  link:../dsh-theater-new/packages/stage \
-  link:../dsh-theater-new/packages/theater \
-  link:../dsh-theater-new/packages/theater-gomoku
-pnpm dsh --profile headless \
-  --patch ../dsh-theater-new/packages/theater-gomoku/headless.cordis.patch.yml
+dsh --profile theater-dev \
+  --patch ./packages/theater/headless.cordis.patch.yml \
+  -- --preset two-character-gomoku --max-segments 4
 ```
-
-The headless runner advances four Character Turns and prints the resulting
-Performance read as JSON.
 
 Remove the local bundles when they are no longer needed:
 
 ```sh
-pnpm dsh plugin --profile web remove \
+dsh plugin --profile theater-dev remove \
   @darwintree/dsh-theater-gomoku \
   @darwintree/dsh-theater \
   @darwintree/dsh-stage

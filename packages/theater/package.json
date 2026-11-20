@@ -19,11 +19,13 @@
       "default": "./dist/headless.js"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
+    "./headless.cordis.patch.yml": "./headless.cordis.patch.yml",
     "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "cordis.patch.yml",
+    "headless.cordis.patch.yml",
     "README.md"
   ],
   "dsh": {

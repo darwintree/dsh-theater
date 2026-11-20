@@ -29,7 +29,6 @@
     "dist",
     "presets",
     "cordis.patch.yml",
-    "headless.cordis.patch.yml",
     "README.md"
   ],
   "dsh": {

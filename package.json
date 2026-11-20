@@ -9,7 +9,11 @@
   },
   "scripts": {
     "build": "tsc -b --pretty false",
+    "build:watch": "tsc -b --watch",
+    "clean": "tsc -b --clean && rm -rf packages/*/dist example/*/dist",
     "test": "vitest run",
+    "test:watch": "vitest",
+    "presets:sync": "node scripts/sync-presets.mjs",
     "check": "pnpm run build && pnpm run test"
   },
   "devDependencies": {
