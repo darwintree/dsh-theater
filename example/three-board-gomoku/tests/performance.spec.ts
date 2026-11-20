@@ -57,7 +57,7 @@ describe('three-board Gomoku example', () => {
       baseDir: ROOT,
       presets: {
         default: 'three-board-gomoku',
-        roots: [{ path: join(ROOT, 'presets'), trust: 'system' }],
+        dirs: [join(ROOT, 'presets')],
       },
     })
     await ctx.plugin(Gomoku)

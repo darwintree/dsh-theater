@@ -73,7 +73,7 @@ async function setup(
     maxParallelToolCalls: 1,
     presets: {
       default: options.defaultPreset ?? 'two-character-gomoku',
-      roots: [{ path: options.presetRoot ?? join(FIXTURES, 'presets'), trust: 'system' }],
+      dirs: [options.presetRoot ?? join(FIXTURES, 'presets')],
     },
     mountTheater: options.mountTheater ?? true,
   })
@@ -385,7 +385,7 @@ describe('Performance Theater', () => {
       childPerformanceId: laterId,
     })
     const later = ctx.theater.read(laterId)
-    expect(later.lineage).toEqual({ parentSession: sourceId, seedLength: laterCursor })
+    expect(later.lineage).toEqual({ seedLength: laterCursor })
     const prefixEnds = sourceSession.snapshotEvents().slice(0, laterCursor)
       .filter(event => event.type === 'theater/segment-ended')
     for (const character of ['black', 'white'] as const) {
@@ -463,7 +463,7 @@ describe('Performance Theater', () => {
     const ctx = await setup(defaultPlan, (options) => {
       const sessionId = String(options.sessionId)
       if (sessionId.startsWith('performance-failure/') && sessionId.endsWith('/characters/black')) {
-        throw new LlmError('scripted Character failure', 'SCRIPTED_FAILURE')
+        throw LlmError.fromFailure({ message: 'scripted Character failure', code: 'SCRIPTED_FAILURE' })
       }
       return moveScript(
         sessionId,
@@ -506,7 +506,7 @@ describe('Performance Theater', () => {
       const writer = await setup(defaultPlan, (options) => {
         const sessionId = String(options.sessionId)
         if (sessionId.endsWith('/characters/black')) {
-          throw new LlmError('writer stopped', 'WRITER_STOPPED')
+          throw LlmError.fromFailure({ message: 'writer stopped', code: 'WRITER_STOPPED' })
         }
         return moveScript(
           sessionId,
@@ -624,11 +624,11 @@ describe('Performance Theater', () => {
 
   it('requires exactly one Director and makes a Theater preset unavailable without Theater support', async () => {
     const unsupported = await setup(defaultPlan, undefined, { mountTheater: false })
-    await expect(unsupported.agentPresets.standingKeyFor('two-character-gomoku'))
+    await expect(unsupported.agentPresets.acquireScope('two-character-gomoku'))
       .rejects.toThrow(/waiting for theater/)
 
     const ctx = await setup()
-    await expect(ctx.agentPresets.standingKeyFor('missing-system-prompt'))
+    await expect(ctx.agentPresets.acquireScope('missing-system-prompt'))
       .rejects.toThrow('must declare a non-empty System Prompt')
     await expect(ctx.theater.create({
       performanceId: SessionId('performance-not-theater'),

@@ -4,15 +4,15 @@ DSH-native Stage and multi-character Performance Theater plugins for [DeepSeek H
 
 ## Packages
 
-Each mountable package declares a DSH bundle manifest (`dsh.bundle.patch` -> `./cordis.patch.yml`), and scenario packages ship ready-to-sync Agent Presets under `presets/<preset-id>/` using package export specifiers:
+Each mountable package declares a DSH bundle manifest (`dsh.bundle.patch`), and scenario packages ship their Agent Presets directly as declarative `@deepseek-ai/dsh-agent-preset` patch files under `presets/<preset-id>.patch.yml` using package export specifiers:
 
-| Package | Role | Bundle | Presets |
+| Package | Role | Bundle Patches | Presets |
 |---|---|---|---|
 | `@darwintree/dsh-stage` (`packages/stage`) | Durable Stage service (`ctx.stages`) & preset declarations | `cordis.patch.yml` | — |
 | `@darwintree/dsh-theater` (`packages/theater`) | Performance runtime (`ctx.theater`), preset API, generic headless runner | `cordis.patch.yml`, `headless.cordis.patch.yml` | — |
-| `@darwintree/dsh-theater-gomoku` (`packages/theater-gomoku`) | Gomoku State Machine, Single-Agent tools, and two-character Director | `cordis.patch.yml` | `gomoku`, `two-character-gomoku` |
-| `@darwintree/dsh-theater-role-play` (`packages/theater-role-play`) | Stage-free multi-character Role-play tools, Director, and v3 preset | `cordis.patch.yml` | `role-play-v3` |
-| `@darwintree/dsh-theater-example-three-board-gomoku` (`example/three-board-gomoku`) | Master vs. Three Challengers example | `cordis.patch.yml` | `three-board-gomoku` |
+| `@darwintree/dsh-theater-gomoku` (`packages/theater-gomoku`) | Gomoku State Machine, Single-Agent tools, and two-character Director | `cordis.patch.yml`, `presets/*.patch.yml` | `gomoku`, `two-character-gomoku` |
+| `@darwintree/dsh-theater-role-play` (`packages/theater-role-play`) | Stage-free multi-character Role-play tools, Director, and v3 preset | `cordis.patch.yml`, `presets/*.patch.yml` | `role-play-v3` |
+| `@darwintree/dsh-theater-example-three-board-gomoku` (`example/three-board-gomoku`) | Master vs. Three Challengers example | `cordis.patch.yml`, `presets/*.patch.yml` | `three-board-gomoku` |
 | `@darwintree/dsh-llm-mock` (`packages/llm-mock`) | Scripted LLM adapter for offline integration tests | — | — |
 
 ## Quick Start (Development & Testing)
@@ -44,7 +44,7 @@ git checkout -- pnpm-workspace.yaml pnpm-lock.yaml && pnpm install
 pnpm build
 ```
 
-2. Mount the core bundles (`stage`, `theater`) plus whichever optional scenario bundles you want into a DSH profile (order does not matter because Cordis activates by service availability):
+2. Mount the core bundles (`stage`, `theater`) plus whichever optional scenario bundles you want into a DSH profile (order does not matter because Cordis activates by service availability, and each scenario bundle's `dsh.bundle.patch` registers both its host plugins and its `@deepseek-ai/dsh-agent-preset` declarations automatically):
 
 ```bash
 dsh plugin --profile theater-dev add \
@@ -55,22 +55,16 @@ dsh plugin --profile theater-dev add \
   ./example/three-board-gomoku
 ```
 
-Installed optional bundles can be disabled in the profile's `cordis.patch.yml` without uninstalling:
+Installed optional bundles or presets can be disabled in the profile's `cordis.patch.yml` without uninstalling:
 
 ```yaml
 - id: theater-role-play
   disabled: true
+- id: preset-role-play-v3
+  disabled: true
 ```
 
-3. Sync shipped presets into `${DSH_HOME:-$HOME/.dsh}/.agent-presets/`:
-
-```bash
-pnpm presets:sync                 # copy all presets
-pnpm presets:sync -- --link       # or symlink for live editing
-pnpm presets:sync -- --only gomoku,role-play-v3
-```
-
-4. Verify composition and start DSH Web:
+3. Verify composition and start DSH Web:
 
 ```bash
 dsh --profile theater-dev --dump-config

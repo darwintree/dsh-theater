@@ -8,5 +8,10 @@
   disabled: true
 
 - insert:
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: two-character-gomoku
+
     - id: theater-headless-runner
       name: '@darwintree/dsh-theater/headless'

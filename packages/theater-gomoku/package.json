@@ -23,6 +23,7 @@
       "default": "./dist/theater.js"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
+    "./presets/*.patch.yml": "./presets/*.patch.yml",
     "./package.json": "./package.json"
   },
   "files": [
@@ -33,7 +34,11 @@
   ],
   "dsh": {
     "bundle": {
-      "patch": "./cordis.patch.yml"
+      "patch": [
+        "./cordis.patch.yml",
+        "./presets/gomoku.patch.yml",
+        "./presets/two-character-gomoku.patch.yml"
+      ]
     }
   },
   "peerDependencies": {
@@ -49,18 +54,20 @@
     "@darwintree/dsh-llm-mock": "workspace:*",
     "@darwintree/dsh-stage": "workspace:*",
     "@darwintree/dsh-theater": "workspace:*",
-    "@deepseek-ai/cordis": "4.0.2",
-    "@deepseek-ai/cordis-plugin-include": "1.0.7",
-    "@deepseek-ai/cordis-plugin-loader": "1.0.3",
-    "@deepseek-ai/dsh-agent": "0.1.5-rc.3",
-    "@deepseek-ai/dsh-agent-loop": "0.1.5-rc.3",
-    "@deepseek-ai/dsh-agent-presets": "0.1.5-rc.3",
-    "@deepseek-ai/dsh-llm": "0.1.5-rc.3",
-    "@deepseek-ai/dsh-session": "0.1.5-rc.3",
-    "@deepseek-ai/dsh-persona": "0.1.5-rc.3",
-    "@deepseek-ai/dsh-system-prompt": "0.1.5-rc.3",
-    "@deepseek-ai/dsh-tools": "0.1.5-rc.3",
-    "@deepseek-ai/dsh-util-values": "0.1.5-rc.3",
-    "@deepseek-ai/dsh-session-projection": "0.1.5-rc.3"
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/cordis-plugin-include": "1.1.0",
+    "@deepseek-ai/cordis-plugin-loader": "1.1.0",
+    "@deepseek-ai/dsh-agent": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-agent-loop": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-agent-preset": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-agent-preset-registry": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-llm": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-session": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-persona": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-system-prompt": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-tool-executor-native": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-util-values": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-session-projection": "0.2.2-rc.5"
   }
 }

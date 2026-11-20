@@ -38,8 +38,7 @@ export function successfulToolCalls(
       continue
     }
     if (event.type !== 'tool/result' || event.data.error !== undefined) continue
-    const block = event.data.message.content[0]
-    if (block.isError === true) continue
+    if (event.data.message.isError === true) continue
     const call = calls.get(String(event.data.message.source.callId))
     if (call !== undefined && (name === undefined || call.name === name)) {
       successful.push({ ...call, resultSeq: event.seq })

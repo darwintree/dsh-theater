@@ -1,0 +1,11 @@
+- insert:
+    - id: preset-role-play-v3
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: role-play-v3
+        name: Role-play (v3)
+        description: Run a stage-free multi-character role-play performance adjudicated by a DM.
+        order: 23
+        plugins:
+          - id: role-play-v3
+            name: '@darwintree/dsh-theater-role-play/v3'

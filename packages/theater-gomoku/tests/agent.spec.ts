@@ -17,7 +17,7 @@ describe('Gomoku agent integration', () => {
       mountTheater: false,
       presets: {
         default: 'gomoku',
-        roots: [{ path: join(PACKAGE_ROOT, 'presets'), trust: 'system' }],
+        dirs: [join(PACKAGE_ROOT, 'presets')],
       },
     })
     await ctx.plugin(MockLlm, {

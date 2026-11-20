@@ -63,7 +63,10 @@ export function createScriptedBehaviour(script: readonly MockResponse[]): Behavi
     const index = options.messages.filter(message => message.role === 'assistant').length
     const scriptedResponse = script[index]
     if (scriptedResponse === undefined) {
-      throw new LlmError(`Mock script exhausted at index ${index}`, 'MOCK_SCRIPT_EXHAUSTED')
+      throw LlmError.fromFailure({
+        message: `Mock script exhausted at index ${index}`,
+        code: 'MOCK_SCRIPT_EXHAUSTED',
+      })
     }
     return scriptedResponse
   }
@@ -147,7 +150,10 @@ export class MockLlmAdapter extends LlmAdapter {
       response = this.behaviour(options)
     } catch (error) {
       if (error instanceof LlmError) throw error
-      throw new LlmError('Mock behaviour failed', 'MOCK_BEHAVIOUR_ERROR', { cause: error })
+      throw LlmError.fromFailure(
+        { message: 'Mock behaviour failed', code: 'MOCK_BEHAVIOUR_ERROR' },
+        { cause: error },
+      )
     }
 
     for (const chunk of chunksFor(response)) {

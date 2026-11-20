@@ -105,6 +105,15 @@ export interface TheaterSegmentEnded {
   readonly error?: { readonly message: string; readonly code: string }
 }
 
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    theater: {
+      readonly kind: 'theater'
+      readonly form: 'instructions'
+    }
+  }
+}
+
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     'theater/character-configured': TheaterCharacterConfigured

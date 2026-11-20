@@ -5,6 +5,7 @@ import LlmRuntime, { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
 import StageService from '@darwintree/dsh-stage'
@@ -21,6 +22,7 @@ async function setup() {
   await ctx.plugin(StageService)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(Gomoku)
   return ctx
 }
@@ -56,13 +58,17 @@ describe('Gomoku tool', () => {
     const ctx = await setupWithAgent()
     const agent = await createGomokuAgent(ctx, 'gomoku-tool')
 
-    const black = await ctx.tools.execute({
-      callId: ToolCallId('black-1'),
-      name: 'place_stone',
-      arguments: { color: 'black', x: 7, y: 7 },
+    const blackBatch = await ctx.tools.execute({
+      calls: [{
+        type: 'tool-call',
+        id: ToolCallId('black-1'),
+        name: 'place_stone',
+        arguments: JSON.stringify({ color: 'black', x: 7, y: 7 }),
+      }],
       signal: new AbortController().signal,
       agent,
     })
+    const black = blackBatch.results[0]!.result
     expect(black.isError, JSON.stringify(black.content)).toBe(false)
     const blackValue = black.value as Gomoku.PlaceStoneValue
     expect(blackValue.accepted).toBe(true)
@@ -72,13 +78,17 @@ describe('Gomoku tool', () => {
     expect(agent.session.snapshotEvents().filter(e => e.type === 'stage/configured')[0]?.data)
       .toMatchObject({ stageId: 'test-board', machine: 'gomoku', version: '1' })
 
-    const white = await ctx.tools.execute({
-      callId: ToolCallId('white-1'),
-      name: 'place_stone',
-      arguments: { color: 'white', x: 8, y: 8 },
+    const whiteBatch = await ctx.tools.execute({
+      calls: [{
+        type: 'tool-call',
+        id: ToolCallId('white-1'),
+        name: 'place_stone',
+        arguments: JSON.stringify({ color: 'white', x: 8, y: 8 }),
+      }],
       signal: new AbortController().signal,
       agent,
     })
+    const white = whiteBatch.results[0]!.result
     expect(white.isError).toBe(false)
     const whiteValue = white.value as Gomoku.PlaceStoneValue
     expect(whiteValue.accepted).toBe(true)
@@ -96,19 +106,26 @@ describe('Gomoku tool', () => {
     const agent = await createGomokuAgent(ctx, 'gomoku-reject')
 
     await ctx.tools.execute({
-      callId: ToolCallId('r1'),
-      name: 'place_stone',
-      arguments: { color: 'black', x: 0, y: 0 },
+      calls: [{
+        type: 'tool-call',
+        id: ToolCallId('r1'),
+        name: 'place_stone',
+        arguments: JSON.stringify({ color: 'black', x: 0, y: 0 }),
+      }],
       signal: new AbortController().signal,
       agent,
     })
-    const occupied = await ctx.tools.execute({
-      callId: ToolCallId('r2'),
-      name: 'place_stone',
-      arguments: { color: 'white', x: 0, y: 0 },
+    const occupiedBatch = await ctx.tools.execute({
+      calls: [{
+        type: 'tool-call',
+        id: ToolCallId('r2'),
+        name: 'place_stone',
+        arguments: JSON.stringify({ color: 'white', x: 0, y: 0 }),
+      }],
       signal: new AbortController().signal,
       agent,
     })
+    const occupied = occupiedBatch.results[0]!.result
     expect(occupied.isError).toBe(false)
     const value = occupied.value as Gomoku.PlaceStoneValue
     expect(value.accepted).toBe(false)
@@ -119,15 +136,20 @@ describe('Gomoku tool', () => {
   it('does not conclude the turn on an accepted move', async () => {
     const ctx = await setupWithAgent()
     const agent = await createGomokuAgent(ctx, 'gomoku-noconclude')
-    const result = await ctx.tools.execute({
-      callId: ToolCallId('nc1'),
-      name: 'place_stone',
-      arguments: { color: 'black', x: 0, y: 0 },
+    const batch = await ctx.tools.execute({
+      calls: [{
+        type: 'tool-call',
+        id: ToolCallId('nc1'),
+        name: 'place_stone',
+        arguments: JSON.stringify({ color: 'black', x: 0, y: 0 }),
+      }],
       signal: new AbortController().signal,
       agent,
     })
+    const result = batch.results[0]!.result
     expect(result.isError).toBe(false)
     // the tool never marks its result terminal, so the loop may continue
+    expect(batch.concluded).toBe(false)
     expect(result.concludesTurn).toBeUndefined()
   })
 });

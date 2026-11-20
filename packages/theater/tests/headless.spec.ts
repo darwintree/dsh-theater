@@ -24,7 +24,7 @@ async function setupHeadlessContext(): Promise<Context> {
     maxParallelToolCalls: 1,
     presets: {
       default: 'two-character-gomoku',
-      roots: [{ path: join(FIXTURES, 'presets'), trust: 'system' }],
+      dirs: [join(FIXTURES, 'presets')],
     },
   })
   await local.plugin(Gomoku)

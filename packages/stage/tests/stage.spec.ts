@@ -119,21 +119,25 @@ describe('Stage Service', () => {
     ])
   })
 
-  it('rejects a preset atomically when a Stage factory is missing', async () => {
+  it('resolves Stage factories independently of registration order and rejects missing factories atomically', async () => {
     const ctx = await setup()
-    ctx.stages.registerFactory(applyingFactory)
     const presetKey = {}
     const preset = createScope(ctx, presetKey)
-    await expect(preset.ctx.plugin(StagePreset, {
+    await preset.ctx.plugin(StagePreset, {
       stages: {
-        valid: { machine: 'counter' },
+        valid: { machine: 'counter', params: { initial: 2, target: 4 } },
         invalid: { machine: 'missing' },
       },
-    })).rejects.toThrow('no State Machine factory registered for kind "missing"')
+    })
+    ctx.stages.registerFactory(applyingFactory)
+    expect(() => ctx.stages.resolveDeclarations(presetKey))
+      .toThrow('no State Machine factory registered for kind "missing"')
     const agent = createScope(ctx, {}, { parent: presetKey })
     const session = ctx.sessions.create(SessionId('invalid-declarations'))
-    await expect(ctx.stages.ensureDeclared(agent.ctx, session, 'valid'))
-      .rejects.toThrow('not declared')
+    await expect(ctx.stages.ensureDeclared(agent.ctx, session, 'invalid'))
+      .rejects.toThrow('no State Machine factory registered for kind "missing"')
+    await ctx.stages.ensureDeclared(agent.ctx, session, 'valid')
+    expect(ctx.stages.read(session, 'valid')).toMatchObject({ value: 2, target: 4 })
   })
 
   it('persists configuration and flushes before ensure resolves', async () => {

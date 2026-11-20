@@ -92,5 +92,7 @@ export function settlement(reason: TurnEndReason): Pick<TheaterSegmentEnded, 'ou
     case 'max-tokens': return { outcome: 'error', error: { message: 'Character action exhausted its token limit', code: 'MAX_TOKENS' } }
     case 'blocked': return { outcome: 'error', error: { message: 'Character action blocked', code: 'BLOCKED' } }
     case 'interrupted': return { outcome: 'error', error: { message: 'Character action interrupted', code: 'INTERRUPTED' } }
+    case 'forked': return { outcome: 'error', error: { message: 'Character action forked', code: 'FORKED' } }
+    default: return { outcome: 'error', error: { message: `Character action ended unexpectedly (${String((reason as { kind?: unknown }).kind)})`, code: 'UNKNOWN' } }
   }
 }

@@ -2,9 +2,9 @@
 
 A Gomoku Stage integration with two composition modes:
 
-- `presets/gomoku/` provides the direct Single-Agent game.
-- `presets/two-character-gomoku/` provides a Theater Performance with independent
-  black and white Character Sessions and one Performance-owned board.
+- `presets/gomoku.patch.yml` provides the direct Single-Agent game (`gomoku`).
+- `presets/two-character-gomoku.patch.yml` provides a Theater Performance with independent
+  black and white Character Sessions and one Performance-owned board (`two-character-gomoku`).
 
 The State Machine owns the board and Gomoku rules. The Stage Service owns its
 persistence and replay.
@@ -34,8 +34,9 @@ those Tools against the Performance-owned board.
 
 ## Presets & DSH Loading
 
-Build the workspace, mount the core and Gomoku bundles into a DSH profile, and
-sync the shipped presets (see also the root [README](../../README.md)):
+Build the workspace and mount the core and Gomoku bundles into a DSH profile;
+`dsh.bundle.patch` registers both the host plugins and the two declarative
+presets automatically (see also the root [README](../../README.md)):
 
 ```sh
 pnpm install --frozen-lockfile
@@ -45,8 +46,6 @@ dsh plugin --profile theater-dev add \
   ./packages/stage \
   ./packages/theater \
   ./packages/theater-gomoku
-
-pnpm presets:sync -- --only gomoku,two-character-gomoku
 ```
 
 Verify the composed profile, then start Web:

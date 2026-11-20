@@ -25,8 +25,15 @@ export interface ResolvedStageDeclaration {
   readonly config: JsonValue
 }
 
+interface StoredStageDeclaration {
+  readonly stageId: string
+  readonly machine: string
+  readonly params: unknown
+  resolved?: ResolvedStageDeclaration
+}
+
 interface DeclarationLayer extends ScopeLayer {
-  readonly declarations: NamedEntries<ResolvedStageDeclaration>
+  readonly declarations: NamedEntries<StoredStageDeclaration>
 }
 
 function nonEmpty(value: unknown, label: string): string {
@@ -36,7 +43,7 @@ function nonEmpty(value: unknown, label: string): string {
   return value
 }
 
-/** Process factories and preset-scoped resolved Stage declarations. */
+/** Process factories and preset-scoped Stage declarations resolved against active factories. */
 export class StageCatalog {
   private readonly factories = new Map<string, StateMachineFactory>()
   private readonly declarationLayers = new ScopedLayers<DeclarationLayer>(
@@ -74,7 +81,7 @@ export class StageCatalog {
     }
     const entries = Object.entries(declarations)
     if (entries.length === 0) throw new Error('Stage declarations must not be empty')
-    const resolved = entries.map(([rawStageId, declaration]) => {
+    const stored = entries.map(([rawStageId, declaration]): StoredStageDeclaration => {
       const stageId = nonEmpty(rawStageId, 'Stage ID')
       if (typeof declaration !== 'object' || declaration === null || Array.isArray(declaration)) {
         throw new Error(`Stage ${JSON.stringify(stageId)} declaration must be an object`)
@@ -88,27 +95,18 @@ export class StageCatalog {
         declaration.machine,
         `State Machine kind for Stage ${JSON.stringify(stageId)}`,
       )
-      const factory = this.factories.get(machine)
-      if (factory === undefined) {
-        throw new Error(`no State Machine factory registered for kind ${JSON.stringify(machine)}`)
-      }
       const params = Object.hasOwn(declaration, 'params') ? declaration.params : {}
-      const config = snapshotJsonValue(factory.resolveConfig(params))
-      if (config === undefined) {
-        throw new Error(`Stage ${JSON.stringify(stageId)} configuration must be lossless JSON`)
-      }
-      return [stageId, { factory, config }] as const
+      return { stageId, machine, params }
     })
     return this.declarationLayers.effect(
       ctx,
       (layer) => {
-        for (const [stageId] of resolved) {
-          if (layer.declarations.has(stageId)) {
-            throw new Error(`duplicate Stage ID ${JSON.stringify(stageId)}`)
+        for (const item of stored) {
+          if (layer.declarations.has(item.stageId)) {
+            throw new Error(`duplicate Stage ID ${JSON.stringify(item.stageId)}`)
           }
         }
-        const undo = resolved.map(([stageId, declaration]) =>
-          layer.declarations.insert(stageId, declaration))
+        const undo = stored.map(item => layer.declarations.insert(item.stageId, item))
         return () => {
           for (const dispose of undo) dispose()
         }
@@ -117,11 +115,34 @@ export class StageCatalog {
     )
   }
 
+  private resolveStored(item: StoredStageDeclaration): ResolvedStageDeclaration {
+    const factory = this.factories.get(item.machine)
+    if (factory === undefined) {
+      throw new Error(`no State Machine factory registered for kind ${JSON.stringify(item.machine)}`)
+    }
+    if (item.resolved !== undefined && item.resolved.factory === factory) {
+      return item.resolved
+    }
+    const config = snapshotJsonValue(factory.resolveConfig(item.params))
+    if (config === undefined) {
+      throw new Error(`Stage ${JSON.stringify(item.stageId)} configuration must be lossless JSON`)
+    }
+    const resolved: ResolvedStageDeclaration = { factory, config }
+    item.resolved = resolved
+    return resolved
+  }
+
   resolve(ctx: Context, stageId: string): ResolvedStageDeclaration | undefined {
-    return this.resolveAll(scopeOf(ctx)).get(stageId)
+    const stored = this.declarationLayers.merge(scopeOf(ctx), layer => layer.declarations).get(stageId)
+    return stored === undefined ? undefined : this.resolveStored(stored)
   }
 
   resolveAll(scope: ScopeKey | undefined): ReadonlyMap<string, ResolvedStageDeclaration> {
-    return this.declarationLayers.merge(scope, layer => layer.declarations)
+    const stored = this.declarationLayers.merge(scope, layer => layer.declarations)
+    const resolved = new Map<string, ResolvedStageDeclaration>()
+    for (const [stageId, item] of stored) {
+      resolved.set(stageId, this.resolveStored(item))
+    }
+    return resolved
   }
 }

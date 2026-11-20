@@ -10,8 +10,9 @@ Challenger 3, then the Master until every pending black move has a white reply.
 The preset disables automatic advancement so each Character Turn can be
 inspected with `ctx.theater.advance()`.
 
-Install the Stage, Theater, Gomoku, and example bundles, then sync the preset
-to the Harness preset root (see also the root [README](../../README.md)):
+Install the Stage, Theater, Gomoku, and example bundles; `dsh.bundle.patch`
+registers both the host plugin and the `three-board-gomoku` preset automatically
+(see also the root [README](../../README.md)):
 
 ```sh
 pnpm build
@@ -21,8 +22,6 @@ dsh plugin --profile theater-dev add \
   ./packages/theater \
   ./packages/theater-gomoku \
   ./example/three-board-gomoku
-
-pnpm presets:sync -- --only three-board-gomoku
 ```
 
 Run a headless smoke test or drive the Performance programmatically through `ctx.theater`:

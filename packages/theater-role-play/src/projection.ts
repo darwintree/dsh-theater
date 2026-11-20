@@ -32,11 +32,10 @@ export function projectCharacterTurn(turn: CharacterTurnRead): string {
       continue
     }
     if (event.type !== 'tool/result') continue
-    const block = event.data.message.content[0]
-    const content = textContent(block.content)
+    const content = textContent(event.data.message.content)
     const name = calls.get(String(event.data.message.source.callId))
     if (name === PERCEIVE_OR_RECALL) {
-      const label = block.isError === true || event.data.error !== undefined
+      const label = event.data.message.isError === true || event.data.error !== undefined
         ? '感知/回忆失败'
         : '感知/回忆结果'
       parts.push(`[${turn.characterId}${label}]\n${content}`)

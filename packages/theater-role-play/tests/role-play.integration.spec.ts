@@ -75,7 +75,7 @@ async function setup(behaviour: Behaviour, persistenceRoot?: string): Promise<Co
     maxParallelToolCalls: 1,
     presets: {
       default: 'role-play-v3',
-      roots: [{ path: presetsRoot, trust: 'system' }],
+      dirs: [presetsRoot],
     },
   })
   ctx.llm.registerAdapter(['commandcode'], new RolePlayMockAdapter(behaviour))
@@ -144,8 +144,7 @@ describe('Stage-free Role-play', () => {
       expect(session.snapshotEvents().some(event => event.type === 'user/message'
         && event.data.source.kind === 'agent-instructions')).toBe(false)
       expect(session.snapshotEvents().some(event => event.type === 'user/message'
-        && event.data.source.kind === 'plugin'
-        && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt')).toBe(false)
+        && event.data.source.kind === 'system-prompt')).toBe(false)
     }
 
     expect(ctx.theater.read(performanceId)).toMatchObject({ phase: 'completed', stages: {} })
@@ -192,9 +191,9 @@ describe('Stage-free Role-play', () => {
     expect(rider.snapshotEvents().filter(event => event.type === 'assistant/message')).toHaveLength(3)
     const thinkResult = rider.snapshotEvents().find(event => event.type === 'tool/result'
       && event.data.message.source.callId === 'think-opening')
-    expect(thinkResult?.type === 'tool/result' && thinkResult.data.message.content[0].isError).toBe(false)
+    expect(thinkResult?.type === 'tool/result' && thinkResult.data.message.isError === true).toBe(false)
     expect(thinkResult?.type === 'tool/result'
-      && blockText(thinkResult.data.message.content[0].content)).toBe('')
+      && blockText(thinkResult.data.message.content)).toBe('')
 
     const archer = ctx.sessions.get(characterSessionId(performanceId, 'archer'))!
     const archerInstruction = archer.snapshotEvents().find(event => event.type === 'user/message')
@@ -216,7 +215,7 @@ describe('Stage-free Role-play', () => {
     })
     expect(sessionTitle(dm)).toBe('王之酒宴 · DM')
     const dmInstructions = dm.snapshotEvents()
-      .filter(event => event.type === 'user/message' && event.data.source.kind === 'plugin')
+      .filter(event => event.type === 'user/message' && event.data.source.kind === 'theater')
       .map(event => blockText(event.data.content))
     expect(dmInstructions).toHaveLength(4)
     expect(dmInstructions[1]).toContain('【rider】询问：这桶酒或庭院里是否有异常魔力？')
@@ -304,8 +303,7 @@ describe('Stage-free Role-play', () => {
       const event = dm.snapshotEvents().find(candidate =>
         candidate.type === 'tool/result' && candidate.data.message.source.callId === callId)
       if (event?.type !== 'tool/result') return ''
-      const result = event.data.message.content[0]
-      return result.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
+      return event.data.message.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
     }
     expect(errorText('unknown-character')).toContain('可用的普通 Character ID：saber、rider、archer')
     expect(errorText('unknown-character')).toContain('无可见内容时使用 content: ""')
@@ -343,7 +341,7 @@ describe('Stage-free Role-play', () => {
 
     const dm = ctx.sessions.get(characterSessionId(performanceId, 'dm'))!
     const instructions = dm.snapshotEvents()
-      .filter(event => event.type === 'user/message' && event.data.source.kind === 'plugin')
+      .filter(event => event.type === 'user/message' && event.data.source.kind === 'theater')
       .map(event => blockText(event.data.content))
     expect(instructions[0]).toBe('开始演出。')
     expect(instructions[1]).toBe('上一轮顶层裁定未完成：缺少一次成功的 recommend_next_character 或 end_performance。')
@@ -435,13 +433,13 @@ describe('Stage-free Role-play', () => {
     const rider = ctx.sessions.get(characterSessionId(performanceId, 'rider'))!
     expect(rider.snapshotEvents()
       .filter(event => event.type === 'tool/result')
-      .map(event => event.data.message.content[0].isError === true)).toEqual([false, true])
+      .map(event => event.data.message.isError === true)).toEqual([false, true])
     expect(rider.snapshotEvents().filter(event => event.type === 'turn/start')).toHaveLength(1)
     expect(rider.snapshotEvents().filter(event => event.type === 'assistant/message')).toHaveLength(3)
     const dm = ctx.sessions.get(characterSessionId(performanceId, 'dm'))!
     const wrongMode = dm.snapshotEvents().find(event =>
       event.type === 'tool/result' && event.data.message.source.callId === 'wrong-mode')
-    expect(wrongMode?.type === 'tool/result' && wrongMode.data.message.content[0].isError).toBe(true)
+    expect(wrongMode?.type === 'tool/result' && wrongMode.data.message.isError).toBe(true)
   })
 
   it('stops after three incomplete top-level DM Turns', async () => {
@@ -519,7 +517,7 @@ describe('Stage-free Role-play', () => {
     const warningResult = dm.snapshotEvents().find(event => event.type === 'tool/result'
       && event.data.message.source.callId === 'warning')
     expect(warningResult?.type === 'tool/result'
-      && blockText(warningResult.data.message.content[0].content)).toBe('')
+      && blockText(warningResult.data.message.content)).toBe('')
 
     const instructions = (characterId: string) => ctx.sessions.get(characterSessionId(performanceId, characterId))!.snapshotEvents()
       .filter(event => event.type === 'user/message')

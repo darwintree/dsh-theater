@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -7,21 +7,33 @@ import Include, { type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
-import { createDshTestContext, installWorkspaceSourceLoader, REPO_ROOT } from './harness.ts'
+import { installWorkspaceSourceLoader, REPO_ROOT } from './harness.ts'
 
 const MOUNTABLE_PACKAGES = [
-  { dir: 'packages/stage', name: '@darwintree/dsh-stage', hasPresets: false },
-  { dir: 'packages/theater', name: '@darwintree/dsh-theater', hasPresets: false },
-  { dir: 'packages/theater-gomoku', name: '@darwintree/dsh-theater-gomoku', hasPresets: true },
-  { dir: 'packages/theater-role-play', name: '@darwintree/dsh-theater-role-play', hasPresets: true },
-  { dir: 'example/three-board-gomoku', name: '@darwintree/dsh-theater-example-three-board-gomoku', hasPresets: true },
+  { dir: 'packages/stage', name: '@darwintree/dsh-stage', presetPatches: [] },
+  { dir: 'packages/theater', name: '@darwintree/dsh-theater', presetPatches: [] },
+  {
+    dir: 'packages/theater-gomoku',
+    name: '@darwintree/dsh-theater-gomoku',
+    presetPatches: ['./presets/gomoku.patch.yml', './presets/two-character-gomoku.patch.yml'],
+  },
+  {
+    dir: 'packages/theater-role-play',
+    name: '@darwintree/dsh-theater-role-play',
+    presetPatches: ['./presets/role-play-v3.patch.yml'],
+  },
+  {
+    dir: 'example/three-board-gomoku',
+    name: '@darwintree/dsh-theater-example-three-board-gomoku',
+    presetPatches: ['./presets/three-board-gomoku.patch.yml'],
+  },
 ] as const
 
 const SHIPPED_PRESETS = [
-  { id: 'gomoku', dir: 'packages/theater-gomoku/presets/gomoku' },
-  { id: 'two-character-gomoku', dir: 'packages/theater-gomoku/presets/two-character-gomoku' },
-  { id: 'three-board-gomoku', dir: 'example/three-board-gomoku/presets/three-board-gomoku' },
-  { id: 'role-play-v3', dir: 'packages/theater-role-play/presets/role-play-v3' },
+  { id: 'gomoku', patchFile: 'packages/theater-gomoku/presets/gomoku.patch.yml' },
+  { id: 'two-character-gomoku', patchFile: 'packages/theater-gomoku/presets/two-character-gomoku.patch.yml' },
+  { id: 'three-board-gomoku', patchFile: 'example/three-board-gomoku/presets/three-board-gomoku.patch.yml' },
+  { id: 'role-play-v3', patchFile: 'packages/theater-role-play/presets/role-play-v3.patch.yml' },
 ] as const
 
 let tempDirs: string[] = []
@@ -37,6 +49,11 @@ async function readPatch(relativePath: string): Promise<PatchOptions[]> {
   const parsed: unknown = parseYaml(await readFile(join(REPO_ROOT, relativePath), 'utf8'))
   if (!Array.isArray(parsed)) throw new Error(`expected array patch in ${relativePath}`)
   return parsed as PatchOptions[]
+}
+
+function normalizePatchList(patch: string | readonly string[] | undefined): string[] {
+  if (patch === undefined) return []
+  return typeof patch === 'string' ? [patch] : [...patch]
 }
 
 afterEach(async () => {
@@ -55,13 +72,15 @@ describe('DSH bundles and shipped presets', () => {
         name: string
         exports?: Record<string, unknown>
         files?: string[]
-        dsh?: { bundle?: { patch?: string } }
+        dsh?: { bundle?: { patch?: string | string[] } }
       }
       expect(manifest.name).toBe(pkg.name)
-      expect(manifest.dsh?.bundle?.patch).toBe('./cordis.patch.yml')
+      const declaredPatches = normalizePatchList(manifest.dsh?.bundle?.patch)
+      expect(declaredPatches).toEqual(['./cordis.patch.yml', ...pkg.presetPatches])
       expect(manifest.exports?.['./cordis.patch.yml']).toBe('./cordis.patch.yml')
       expect(manifest.files).toContain('cordis.patch.yml')
-      if (pkg.hasPresets) {
+      if (pkg.presetPatches.length > 0) {
+        expect(manifest.exports?.['./presets/*.patch.yml']).toBe('./presets/*.patch.yml')
         expect(manifest.files).toContain('presets')
       }
 
@@ -74,22 +93,25 @@ describe('DSH bundles and shipped presets', () => {
     }
   })
 
-  it('uses package export specifiers instead of relative dist paths in every shipped preset', async () => {
+  it('uses package export specifiers instead of relative dist paths in every shipped declarative preset patch', async () => {
     for (const preset of SHIPPED_PRESETS) {
-      const rows = parseYaml(await readFile(join(REPO_ROOT, preset.dir, 'agent.cordis.yml'), 'utf8')) as Array<{
-        id?: string
-        name?: string
-      }>
-      expect(Array.isArray(rows)).toBe(true)
-      expect(rows.length).toBeGreaterThan(0)
-      for (const row of rows) {
-        expect(typeof row.name).toBe('string')
-        expect(row.name).not.toMatch(/^\.\.?\/|\/dist\/|\.js$/)
+      const patch = await readPatch(preset.patchFile)
+      const inserted = patch.flatMap(entry => entry.insert ?? [])
+      expect(inserted).toHaveLength(1)
+      const row = inserted[0]!
+      expect(row.name).toBe('@deepseek-ai/dsh-agent-preset')
+      const config = row.config as { id?: string; plugins?: Array<{ name?: string }> }
+      expect(config.id).toBe(preset.id)
+      expect(Array.isArray(config.plugins)).toBe(true)
+      expect(config.plugins!.length).toBeGreaterThan(0)
+      for (const plugin of config.plugins!) {
+        expect(typeof plugin.name).toBe('string')
+        expect(plugin.name).not.toMatch(/^\.\.?\/|\/dist\/|\.js$/)
       }
     }
   })
 
-  it('mounts optional bundles in reverse order via real Cordis Loader and supports disabling optional rows', async () => {
+  it('mounts optional bundles and declarative presets in reverse order via real Cordis Loader and supports disabling optional rows', async () => {
     const configDir = await makeTempDir('dsh-theater-bundles-')
     const configPath = join(configDir, 'cordis.yml')
     await writeFile(configPath, [
@@ -103,6 +125,8 @@ describe('DSH bundles and shipped presets', () => {
       "  name: '@deepseek-ai/dsh-system-prompt'",
       "- id: tools",
       "  name: '@deepseek-ai/dsh-tools'",
+      "- id: tool-executor-native",
+      "  name: '@deepseek-ai/dsh-tool-executor-native'",
       "- id: agents",
       "  name: '@deepseek-ai/dsh-agent'",
       "- id: agent-loop",
@@ -114,20 +138,22 @@ describe('DSH bundles and shipped presets', () => {
       "  config:",
       "    provider: mock",
       "    model: scripted",
-      "- id: agent-presets",
-      "  name: '@deepseek-ai/dsh-agent-presets'",
+      "- id: agent-preset-registry",
+      "  name: '@deepseek-ai/dsh-agent-preset-registry'",
       "  config:",
       "    default: gomoku",
-      "    roots: []",
-      "    includeUserRoot: false",
       '',
     ].join('\n'))
 
-    // Apply optional domain bundles BEFORE stage and theater to verify service-driven activation.
+    // Apply optional domain bundles and their preset patches BEFORE stage and theater to verify service-driven activation.
     const patches = [
       ...await readPatch('example/three-board-gomoku/cordis.patch.yml'),
+      ...await readPatch('example/three-board-gomoku/presets/three-board-gomoku.patch.yml'),
       ...await readPatch('packages/theater-role-play/cordis.patch.yml'),
+      ...await readPatch('packages/theater-role-play/presets/role-play-v3.patch.yml'),
       ...await readPatch('packages/theater-gomoku/cordis.patch.yml'),
+      ...await readPatch('packages/theater-gomoku/presets/gomoku.patch.yml'),
+      ...await readPatch('packages/theater-gomoku/presets/two-character-gomoku.patch.yml'),
       ...await readPatch('packages/theater/cordis.patch.yml'),
       ...await readPatch('packages/stage/cordis.patch.yml'),
     ]
@@ -147,10 +173,22 @@ describe('DSH bundles and shipped presets', () => {
     })
     await ctx.loader.await()
 
-    const pending = [...ctx.loader.entries()].filter(entry => entry.fiber === undefined && !entry.disabled)
+    const pending = [...ctx.loader.entries()]
+      .filter(entry => entry.fiber === undefined && !entry.disabled)
+      .map(entry => ({ id: entry.id, name: entry.name }))
     expect(pending).toEqual([])
     expect(ctx.get('stages')).toBeDefined()
     expect(ctx.get('theater')).toBeDefined()
+
+    const discovered = await ctx.agentPresets.list()
+    for (const preset of SHIPPED_PRESETS) {
+      const found = discovered.find(item => item.id === preset.id)
+      expect(found, `expected preset ${preset.id} to be discovered`).toBeDefined()
+      expect(found?.broken, `expected preset ${preset.id} to be valid`).toBeUndefined()
+      const lease = await ctx.agentPresets.acquireScope(preset.id)
+      expect(lease.key).toBeDefined()
+      await lease[Symbol.asyncDispose]()
+    }
 
     // Disable optional role-play and three-board-gomoku rows independently while core stays live.
     const includeEntry = [...ctx.loader.entries()].find(entry => entry.id === includeId)
@@ -161,44 +199,16 @@ describe('DSH bundles and shipped presets', () => {
         patches: [
           ...patches,
           { id: 'theater-role-play', disabled: true },
+          { id: 'preset-role-play-v3', disabled: true },
           { id: 'theater-example-three-board-gomoku', disabled: true },
+          { id: 'preset-three-board-gomoku', disabled: true },
         ],
       },
     })
     await ctx.loader.await()
     expect(ctx.get('stages')).toBeDefined()
     expect(ctx.get('theater')).toBeDefined()
-  })
-
-  it('loads all shipped presets cleanly after copying them to an isolated external preset root', async () => {
-    const externalPresetsRoot = await makeTempDir('dsh-external-presets-')
-    for (const preset of SHIPPED_PRESETS) {
-      await cp(join(REPO_ROOT, preset.dir), join(externalPresetsRoot, preset.id), { recursive: true })
-    }
-
-    ctx = await createDshTestContext({
-      presets: {
-        default: 'gomoku',
-        roots: [{ path: externalPresetsRoot, trust: 'system' }],
-      },
-    })
-
-    const gomokuPlugin = await import('@darwintree/dsh-theater-gomoku')
-    const gomokuTheaterPlugin = await import('@darwintree/dsh-theater-gomoku/theater')
-    const rolePlayPlugin = await import('@darwintree/dsh-theater-role-play')
-    const threeBoardPlugin = await import('@darwintree/dsh-theater-example-three-board-gomoku')
-
-    await ctx.plugin(gomokuPlugin)
-    await ctx.plugin(gomokuTheaterPlugin)
-    await ctx.plugin(rolePlayPlugin)
-    await ctx.plugin(threeBoardPlugin)
-
-    const discovered = await ctx.agentPresets.list()
-    for (const preset of SHIPPED_PRESETS) {
-      const found = discovered.find(item => item.id === preset.id)
-      expect(found, `expected preset ${preset.id} to be discovered`).toBeDefined()
-      expect(found?.broken, `expected preset ${preset.id} to be valid`).toBeUndefined()
-      await expect(ctx.agentPresets.standingKeyFor(preset.id)).resolves.toBeDefined()
-    }
+    const remainingIds = (await ctx.agentPresets.list()).map(item => item.id).sort()
+    expect(remainingIds).toEqual(['gomoku', 'two-character-gomoku'])
   })
 })

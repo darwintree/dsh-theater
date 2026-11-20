@@ -73,11 +73,13 @@ function replayMachine(
 export class StageService extends Service {
   static inject = ['sessions']
 
+  private readonly owner: Context
   private readonly live = new WeakMap<Session, Map<string, LiveStage>>()
   private readonly catalog = new StageCatalog()
 
   constructor(ctx: Context) {
     super(ctx, 'stages')
+    this.owner = ctx
     ctx.effect(registerStageSessionEventTypes, 'stages.sessionEventTypes()')
   }
 
@@ -183,7 +185,7 @@ export class StageService extends Service {
       version: factory.version,
       config,
     })
-    await this.ctx.sessions.flush(session)
+    await this.owner.sessions.flush(session)
     live.set(stageId, { machine })
   }
 
@@ -216,7 +218,7 @@ export class StageService extends Service {
       ? { stageId, op: persistedOp }
       : { stageId, op: persistedOp, outcome: persistedOutcome }
     session.append('stage/op', stageOp)
-    await this.ctx.sessions.flush(session)
+    await this.owner.sessions.flush(session)
     return persistedOutcome === undefined
       ? { kind: 'accepted' }
       : { kind: 'accepted', outcome: persistedOutcome }

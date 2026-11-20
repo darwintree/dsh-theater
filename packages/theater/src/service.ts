@@ -4,7 +4,7 @@ import { Service, type Context } from '@deepseek-ai/cordis'
 import type { Agent, ModelSelection } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import * as AgentInstructions from '@deepseek-ai/dsh-agent-instructions'
-import type {} from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import {
   SessionId,
@@ -116,11 +116,13 @@ export class TheaterService extends Service {
     }),
     () => undefined,
   )
+  private readonly owner: Context
   private readonly toolFactories = new Map<string, TheaterToolFactory>()
   private readonly live = new Map<SessionIdType, PerformanceRuntime>()
 
   constructor(ctx: Context) {
     super(ctx, 'theater')
+    this.owner = ctx
     ctx.effect(registerTheaterSessionEventTypes, 'theater.sessionEventTypes()')
   }
 
@@ -182,11 +184,11 @@ export class TheaterService extends Service {
     }
     const contributions = await this.resolveContributions(presetId)
     const configured = resolvedConfiguration(presetId, contributions)
-    const scope = createScope(this.ctx, { performanceId })
+    const scope = createScope(this.owner, { performanceId })
     let pendingHandle: { close(): Promise<void> } | undefined
     try {
       const session = scope.ctx.sessions.prepare(performanceId, { meta: { cwd: input.cwd } })
-      const persistence = this.ctx.get('sessionPersistence')
+      const persistence = this.owner.get('sessionPersistence')
       if (persistence !== undefined) {
         pendingHandle = await persistence.create(session.header, {
           inheritedEventCount: session.inheritedEventCount,
@@ -222,9 +224,9 @@ export class TheaterService extends Service {
   async resume(input: ResumePerformanceInput): Promise<PerformanceRead> {
     const performanceId = SessionId(nonEmpty(String(input.performanceId), 'Performance Session ID'))
     this.assertAvailable(performanceId)
-    const persistence = this.ctx.get('sessionPersistence')
+    const persistence = this.owner.get('sessionPersistence')
     if (persistence === undefined) throw new Error('cannot resume Performance: session persistence is not configured')
-    const scope = createScope(this.ctx, { performanceId })
+    const scope = createScope(this.owner, { performanceId })
     let pendingHandle: { close(): Promise<void> } | undefined
     try {
       const handle = await persistence.open(performanceId, 'write')
@@ -304,7 +306,7 @@ export class TheaterService extends Service {
     }
     const seeds = selected.configured.characters.map((character) => {
       const parentId = characterSessionId(sourceId, character.id)
-      const parent = this.ctx.sessions.get(parentId)
+      const parent = this.owner.sessions.get(parentId)
       if (parent === undefined) throw new Error(`source Character Session is not live: ${parentId}`)
       const parentEvents = parent.snapshotEvents()
       const watermark = selected.watermarks.get(character.id) ?? 0
@@ -313,10 +315,10 @@ export class TheaterService extends Service {
       }
       return { character, parent, watermark, seed: parentEvents.slice(0, watermark) }
     })
-    const scope = createScope(this.ctx, { performanceId: childId })
+    const scope = createScope(this.owner, { performanceId: childId })
     try {
       const session = scope.ctx.sessions.fork(source.session, SessionSeq(input.cursor - 1), childId)
-      const persistence = this.ctx.get('sessionPersistence')
+      const persistence = this.owner.get('sessionPersistence')
       if (persistence !== undefined) {
         const handle = await persistence.create(session.header, {
           inheritedEventCount: session.inheritedEventCount,
@@ -383,8 +385,8 @@ export class TheaterService extends Service {
       if (!runtime.liveStages.has(configuration.stageId)) return [configuration.stageId, { configuration }]
       return [configuration.stageId, {
         configuration,
-        state: this.ctx.stages.read(runtime.session, configuration.stageId),
-        completed: this.ctx.stages.completed(runtime.session, configuration.stageId),
+        state: this.owner.stages.read(runtime.session, configuration.stageId),
+        completed: this.owner.stages.completed(runtime.session, configuration.stageId),
       }]
     }))
     return {
@@ -434,7 +436,7 @@ export class TheaterService extends Service {
     runtime.mainLoop = (async () => {
       try {
         const directorContext = {
-          readStage: (stageId: string) => this.ctx.stages.read(runtime.session, stageId),
+          readStage: (stageId: string) => this.owner.stages.read(runtime.session, stageId),
           readSettledTurns: () => this.readSettledTurns(runtime),
         }
         while (true) {
@@ -492,7 +494,7 @@ export class TheaterService extends Service {
     try {
       character.followup(createUserMessage({
         content: [...instruction],
-        source: { kind: 'plugin', plugin: '@darwintree/dsh-theater', form: 'instructions' },
+        source: { kind: 'theater', form: 'instructions' },
       }))
       await character.whenIdle()
       const turnEnd = character.session.snapshotEvents().slice(before).reverse()
@@ -556,49 +558,54 @@ export class TheaterService extends Service {
   }
 
   private async resolveContributions(presetId: string): Promise<TheaterContributions> {
-    const key: ScopeKey = await this.ctx.agentPresets.standingKeyFor(presetId)
-    const layer = this.layers.peek(key)
-    const titles = layer === undefined ? [] : [...layer.titles.values()]
-    if (titles.length > 1) {
-      throw new Error(`Agent Preset ${JSON.stringify(presetId)} must contribute at most one Theater title; found ${titles.length}`)
-    }
-    const autoAdvanceValues = layer === undefined ? [] : [...layer.autoAdvance.values()]
-    if (autoAdvanceValues.length > 1) {
-      throw new Error(`Agent Preset ${JSON.stringify(presetId)} must contribute at most one Theater autoAdvance value; found ${autoAdvanceValues.length}`)
-    }
-    const directors = layer === undefined ? [] : [...layer.directors.values()]
-    if (directors.length !== 1) {
-      throw new Error(`Agent Preset ${JSON.stringify(presetId)} must contribute exactly one Theater Director; found ${directors.length}`)
-    }
-    const registeredCharacters = layer === undefined ? [] : [...layer.characters.values()]
-    const characters = registeredCharacters.map((character) => ({
-      id: character.id,
-      title: nonEmpty(character.title ?? character.id, `Title for Character ${JSON.stringify(character.id)}`),
-      ...character.model === undefined ? {} : { model: character.model },
-      systemPrompt: character.systemPrompt,
-      tools: character.tools.map((declaration) => {
-        const kind = nonEmpty(declaration.factory, `Tool factory for Character ${JSON.stringify(character.id)}`)
-        const factory = this.toolFactories.get(kind)
-        if (factory === undefined) {
-          throw new Error(`no Theater Tool factory registered for kind ${JSON.stringify(kind)}`)
-        }
-        const config = snapshotJsonValue(factory.resolveConfig(declaration.params ?? {}))
-        if (config === undefined) {
-          throw new Error(`Theater Tool factory ${JSON.stringify(kind)} returned non-JSON configuration`)
-        }
-        return { factory, config }
-      }),
-    }))
-    const stages = [...this.ctx.stages.resolveDeclarations(key)].map(([stageId, declaration]) => ({
-      stageId,
-      ...declaration,
-    }))
-    return {
-      title: nonEmpty(titles[0] ?? presetId, 'Performance title'),
-      autoAdvance: autoAdvanceValues[0] ?? true,
-      characters,
-      stages,
-      director: directors[0]!,
+    const lease = await this.owner.agentPresets.acquireScope(presetId)
+    try {
+      const key: ScopeKey = lease.key
+      const layer = this.layers.peek(key)
+      const titles = layer === undefined ? [] : [...layer.titles.values()]
+      if (titles.length > 1) {
+        throw new Error(`Agent Preset ${JSON.stringify(presetId)} must contribute at most one Theater title; found ${titles.length}`)
+      }
+      const autoAdvanceValues = layer === undefined ? [] : [...layer.autoAdvance.values()]
+      if (autoAdvanceValues.length > 1) {
+        throw new Error(`Agent Preset ${JSON.stringify(presetId)} must contribute at most one Theater autoAdvance value; found ${autoAdvanceValues.length}`)
+      }
+      const directors = layer === undefined ? [] : [...layer.directors.values()]
+      if (directors.length !== 1) {
+        throw new Error(`Agent Preset ${JSON.stringify(presetId)} must contribute exactly one Theater Director; found ${directors.length}`)
+      }
+      const registeredCharacters = layer === undefined ? [] : [...layer.characters.values()]
+      const characters = registeredCharacters.map((character) => ({
+        id: character.id,
+        title: nonEmpty(character.title ?? character.id, `Title for Character ${JSON.stringify(character.id)}`),
+        ...character.model === undefined ? {} : { model: character.model },
+        systemPrompt: character.systemPrompt,
+        tools: character.tools.map((declaration) => {
+          const kind = nonEmpty(declaration.factory, `Tool factory for Character ${JSON.stringify(character.id)}`)
+          const factory = this.toolFactories.get(kind)
+          if (factory === undefined) {
+            throw new Error(`no Theater Tool factory registered for kind ${JSON.stringify(kind)}`)
+          }
+          const config = snapshotJsonValue(factory.resolveConfig(declaration.params ?? {}))
+          if (config === undefined) {
+            throw new Error(`Theater Tool factory ${JSON.stringify(kind)} returned non-JSON configuration`)
+          }
+          return { factory, config }
+        }),
+      }))
+      const stages = [...this.owner.stages.resolveDeclarations(key)].map(([stageId, declaration]) => ({
+        stageId,
+        ...declaration,
+      }))
+      return {
+        title: nonEmpty(titles[0] ?? presetId, 'Performance title'),
+        autoAdvance: autoAdvanceValues[0] ?? true,
+        characters,
+        stages,
+        director: directors[0]!,
+      }
+    } finally {
+      await lease[Symbol.asyncDispose]()
     }
   }
 
@@ -771,7 +778,7 @@ export class TheaterService extends Service {
   }
 
   private assertAvailable(performanceId: SessionIdType): void {
-    if (this.live.has(performanceId) || this.ctx.sessions.get(performanceId) !== undefined) {
+    if (this.live.has(performanceId) || this.owner.sessions.get(performanceId) !== undefined) {
       throw new Error(`Performance ${JSON.stringify(performanceId)} is already live`)
     }
   }
