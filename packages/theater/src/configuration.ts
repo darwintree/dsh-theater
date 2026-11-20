@@ -1,8 +1,8 @@
 import {
   SessionId,
-  type JsonValue,
   type SessionId as SessionIdType,
 } from '@deepseek-ai/dsh-session'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ModelSelection } from '@deepseek-ai/dsh-agent'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { StageConfigured, StateMachineFactory } from '@darwintree/dsh-stage'

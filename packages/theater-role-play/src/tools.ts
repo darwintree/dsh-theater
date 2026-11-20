@@ -1,4 +1,4 @@
-import type { JsonValue } from '@deepseek-ai/dsh-session'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { defineTool, type ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { CharacterTurnRead, TheaterToolContext, TheaterToolFactory } from '@darwintree/dsh-theater'
 import { successfulToolCalls } from './history.js'
@@ -90,7 +90,7 @@ function currentTurnStart(events: readonly { readonly type: string }[]): number 
 }
 
 function hasVoiceOverSinceTerminal(exec: ToolRunContext): boolean {
-  const events = requireAgent(exec).session.events
+  const events = requireAgent(exec).session.snapshotEvents()
   const calls = successfulToolCalls(events)
   const lastTerminal = calls.filter(call => TERMINAL_TOOLS.includes(call.name)).at(-1)
   return calls.some(call => call.name === VOICE_OVER && call.resultSeq > (lastTerminal?.resultSeq ?? -1))
@@ -101,7 +101,7 @@ function requireFirstCurrentCall(
   names: readonly string[],
   message = `当前 Turn 只接受一次 ${names.join(' 或 ')}`,
 ): void {
-  const events = requireAgent(exec).session.events
+  const events = requireAgent(exec).session.snapshotEvents()
   const calls = events.slice(currentTurnStart(events)).filter(event =>
     event.type === 'tool/call' && names.includes(event.data.name))
   if (calls.findIndex(event => event.type === 'tool/call' && event.data.callId === exec.callId) > 0) {
@@ -177,7 +177,8 @@ export const perceiveOrRecallToolFactory: TheaterToolFactory = {
         exact(args, ['content'], PERCEIVE_OR_RECALL)
         requireOrdinaryTopLevel(context)
         const agent = requireAgent(exec)
-        const start = currentTurnStart(agent.session.events)
+        const sessionEvents = agent.session.snapshotEvents()
+        const start = currentTurnStart(sessionEvents)
         requireFirstCurrentCall(
           exec,
           [PERCEIVE_OR_RECALL],
@@ -187,7 +188,7 @@ export const perceiveOrRecallToolFactory: TheaterToolFactory = {
         const prefix: CharacterTurnRead = {
           characterId: context.characterId,
           outcome: 'completed',
-          events: agent.session.events.slice(start),
+          events: sessionEvents.slice(start),
         }
         let instruction = projectCharacterTurn(prefix)
         for (let attempt = 1; attempt <= 3; attempt += 1) {

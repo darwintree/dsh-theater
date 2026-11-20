@@ -1,12 +1,12 @@
 - id: stages
-  name: '../../../../../stage/dist/preset.js'
+  name: '@darwintree/dsh-stage/preset'
   config:
     stages:
       board1:
         machine: gomoku
         params: { boardSize: 3, winLength: 3 }
 - id: performance
-  name: '../../../../dist/preset.js'
+  name: '@darwintree/dsh-theater/preset'
   config:
     characters:
       black:

@@ -1,6 +1,7 @@
 import type { ModelSelection } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { JsonValue, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { InteractionResult, StageConfigured } from '@darwintree/dsh-stage'
 

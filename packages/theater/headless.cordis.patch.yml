@@ -1,0 +1,12 @@
+# Replace DSH's ordinary one-Agent headless app with the generic Theater headless runner.
+# Pass target preset and optional limits via CLI flags after `--`, e.g.:
+#   dsh --profile headless --patch ./packages/theater/headless.cordis.patch.yml -- --preset two-character-gomoku --max-segments 4
+- id: headless-startup
+  disabled: true
+
+- id: headless-runner
+  disabled: true
+
+- insert:
+    - id: theater-headless-runner
+      name: '@darwintree/dsh-theater/headless'

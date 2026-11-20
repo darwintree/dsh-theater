@@ -1,11 +1,11 @@
 - id: stages
-  name: '../../../../../stage/dist/preset.js'
+  name: '@darwintree/dsh-stage/preset'
   config:
     stages:
       board1:
         machine: gomoku
 - id: performance
-  name: '../../../../dist/preset.js'
+  name: '@darwintree/dsh-theater/preset'
   config:
     characters:
       black:
@@ -14,8 +14,8 @@
           - factory: gomoku-place-stone
             params: { stage: board1, color: black }
 - id: first-director
-  name: '../../../../../theater-gomoku/dist/director.js'
+  name: '@darwintree/dsh-theater-gomoku/director'
   config: { stage: board1, instruction: Make one legal move. }
 - id: second-director
-  name: '../../../../../theater-gomoku/dist/director.js'
+  name: '@darwintree/dsh-theater-gomoku/director'
   config: { stage: board1, instruction: Make one legal move. }

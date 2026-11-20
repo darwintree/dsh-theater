@@ -1,6 +1,27 @@
 packages:
   - packages/*
   - example/*
-autoInstallPeers: false
+autoInstallPeers: true
+dedupePeerDependents: true
+resolvePeersFromWorkspaceRoot: true
+overrides:
+  '@deepseek-ai/cordis': '4.0.2'
+  '@deepseek-ai/cordis-plugin-include': '1.0.7'
+  '@deepseek-ai/cordis-plugin-loader': '1.0.3'
+  '@deepseek-ai/schemastery': '3.18.2'
+  '@deepseek-ai/dsh-atomic-write': '0.1.5-rc.3'
+  '@deepseek-ai/dsh-brand': '0.1.5-rc.3'
+  '@deepseek-ai/dsh-code-runtime': '0.1.5-rc.3'
+  '@deepseek-ai/dsh-fs': '0.1.5-rc.3'
+  '@deepseek-ai/dsh-home-paths': '0.1.5-rc.3'
+  '@deepseek-ai/dsh-invariants': '0.1.5-rc.3'
+  '@deepseek-ai/dsh-scope': '0.1.5-rc.3'
+  '@deepseek-ai/dsh-session-projection': '0.1.5-rc.3'
+  '@deepseek-ai/dsh-settings': '0.1.5-rc.3'
+  '@deepseek-ai/dsh-typert-protocol': '0.1.5-rc.3'
+  '@deepseek-ai/dsh-user-approval': '0.1.5-rc.3'
+  '@deepseek-ai/dsh-util-values': '0.1.5-rc.3'
 allowBuilds:
   esbuild: true
+  # koffi is only loaded on Windows for MoveFileExW; skipping its native build avoids GCC build failures.
+  koffi: false

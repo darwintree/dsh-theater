@@ -2,6 +2,7 @@
   "labels": [
     "FEATURE REQUEST",
     "NEEDS-TRIAGE",
-    "READY-FOR-AGENT"
+    "READY-FOR-AGENT",
+    "TECH DEBT"
   ]
 }

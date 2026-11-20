@@ -1,25 +1,17 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
-import { Context } from '@deepseek-ai/cordis'
-import Include from '@deepseek-ai/cordis-plugin-include'
-import Loader from '@deepseek-ai/cordis-plugin-loader'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-import AgentDefaultModel from '@deepseek-ai/dsh-agent-default-model'
-import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import AgentPresets from '@deepseek-ai/dsh-agent-presets'
-import LlmRuntime, { LlmError } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
+import { fileURLToPath } from 'node:url'
+import type { Context } from '@deepseek-ai/cordis'
+import { LlmError } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
 import { MockLlmAdapter, type Behaviour, type MockResponse } from '@darwintree/dsh-llm-mock'
-import StageService from '@darwintree/dsh-stage'
-import * as Gomoku from '../../theater-gomoku/src/index.ts'
-import * as GomokuTheater from '../../theater-gomoku/src/theater.ts'
-import TheaterService, { characterSessionId } from '../src/index.ts'
+import * as Gomoku from '@darwintree/dsh-theater-gomoku'
+import * as GomokuTheater from '@darwintree/dsh-theater-gomoku/theater'
+import { characterSessionId } from '@darwintree/dsh-theater'
+import { createDshTestContext, extractSystemPrompt } from '../../../tests/harness.ts'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 
@@ -74,30 +66,18 @@ async function setup(
     mountTheater?: boolean
   } = {},
 ): Promise<Context> {
-  const ctx = new Context()
-  ctx.baseUrl = pathToFileURL(FIXTURES).href + '/'
-  await ctx.plugin(Loader)
-  ctx.loader.builtins.include = Include
-  await ctx.plugin(LlmRuntime)
-  await ctx.plugin(SessionStore)
-  if (options.persistenceRoot !== undefined) {
-    await ctx.plugin(JsonlSessionPersistence, {
-      root: options.persistenceRoot,
-      compression: 'none',
-    })
-  }
-  await ctx.plugin(StageService)
-  await ctx.plugin(Gomoku)
-  await ctx.plugin(SystemPrompt, { persona: 'Host default persona.' })
-  await ctx.plugin(ToolRuntime)
-  await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentLoop, { agents: [], maxParallelToolCalls: 1 })
-  await ctx.plugin(AgentDefaultModel, { provider: 'mock', model: 'scripted' })
-  await ctx.plugin(AgentPresets, {
-    default: options.defaultPreset ?? 'two-character-gomoku',
-    roots: [{ path: options.presetRoot ?? join(FIXTURES, 'presets'), trust: 'system' }],
-    includeUserRoot: false,
+  const ctx = await createDshTestContext({
+    baseDir: FIXTURES,
+    ...options.persistenceRoot === undefined ? {} : { persistenceRoot: options.persistenceRoot },
+    personaPrefix: 'Host default persona.',
+    maxParallelToolCalls: 1,
+    presets: {
+      default: options.defaultPreset ?? 'two-character-gomoku',
+      roots: [{ path: options.presetRoot ?? join(FIXTURES, 'presets'), trust: 'system' }],
+    },
+    mountTheater: options.mountTheater ?? true,
   })
+  await ctx.plugin(Gomoku)
   ctx.llm.registerAdapter(['mock'], new MockLlmAdapter(behaviour ?? (options =>
     moveScript(
       String(options.sessionId),
@@ -105,7 +85,6 @@ async function setup(
       plan,
     ))))
   if (options.mountTheater !== false) {
-    await ctx.plugin(TheaterService)
     await ctx.plugin(GomokuTheater)
   }
   return ctx
@@ -125,10 +104,8 @@ async function writeCompatibilityPresets(
     boardSize: number
   },
 ): Promise<void> {
-  const stagePreset = join(FIXTURES, '..', '..', '..', 'stage', 'dist', 'preset.js')
-  const theaterPreset = join(FIXTURES, '..', '..', 'dist', 'preset.js')
   const director = config.director === 'gomoku'
-    ? join(FIXTURES, '..', '..', '..', 'theater-gomoku', 'dist', 'director.js')
+    ? '@darwintree/dsh-theater-gomoku/director'
     : join(FIXTURES, 'plugins', 'complete-director.js')
   const rows = config.characters.flatMap(character => [
     `      ${character.id}:`,
@@ -144,14 +121,14 @@ async function writeCompatibilityPresets(
   await mkdir(join(root, 'compat'), { recursive: true })
   await writeFile(join(root, 'compat', 'agent.cordis.yml'), [
     '- id: stages',
-    `  name: ${JSON.stringify(stagePreset)}`,
+    "  name: '@darwintree/dsh-stage/preset'",
     '  config:',
     '    stages:',
     '      board1:',
     '        machine: gomoku',
     `        params: { boardSize: ${config.boardSize}, winLength: 3 }`,
     '- id: performance',
-    `  name: ${JSON.stringify(theaterPreset)}`,
+    "  name: '@darwintree/dsh-theater/preset'",
     '  config:',
     ...config.autoAdvance === undefined ? [] : [`    autoAdvance: ${config.autoAdvance}`],
     '    characters:',
@@ -172,7 +149,7 @@ describe('Performance Theater', () => {
     const systems = new Map<string, string | undefined>()
     const ctx = await setup(defaultPlan, (options) => {
       const sessionId = String(options.sessionId)
-      systems.set(sessionId, options.system)
+      systems.set(sessionId, extractSystemPrompt(options))
       return moveScript(
         sessionId,
         options.messages.filter(message => message.role === 'assistant').length,
@@ -199,7 +176,7 @@ describe('Performance Theater', () => {
     ctx.on('session/flush', (session) => {
       flushes.push({
         sessionId: String(session.id),
-        lastType: session.events.at(-1)?.type,
+        lastType: session.snapshotEvents().at(-1)?.type,
         blackSeq: ctx.sessions.get(characterSessionId(performanceId, 'black'))?.seq,
         whiteSeq: ctx.sessions.get(characterSessionId(performanceId, 'white'))?.seq,
       })
@@ -222,7 +199,7 @@ describe('Performance Theater', () => {
     expect(performance.cwd).toBe(FIXTURES)
     expect(session.header.cwd).toBe(FIXTURES)
     expect(session.header.agentPreset).toBeUndefined()
-    expect(session.events.find(event => event.type === 'theater/configured')).toMatchObject({
+    expect(session.snapshotEvents().find(event => event.type === 'theater/configured')).toMatchObject({
       data: {
         presetId: 'two-character-gomoku',
         autoAdvance: true,
@@ -232,26 +209,26 @@ describe('Performance Theater', () => {
         ],
       },
     })
-    expect(session.events.filter(event => event.type === 'stage/op')).toHaveLength(5)
-    expect(session.events.some(event => event.type === 'user/message')).toBe(false)
-    expect(session.events.some(event => event.type === 'assistant/message')).toBe(false)
-    expect(session.events.some(event => event.type === 'tool/call')).toBe(false)
-    expect(session.events.some(event => event.type === 'tool/result')).toBe(false)
-    expect(session.events.filter(event => event.type === 'theater/segment-started')).toHaveLength(5)
-    expect(session.events.filter(event => event.type === 'theater/segment-ended')).toHaveLength(5)
+    expect(session.snapshotEvents().filter(event => event.type === 'stage/op')).toHaveLength(5)
+    expect(session.snapshotEvents().some(event => event.type === 'user/message')).toBe(false)
+    expect(session.snapshotEvents().some(event => event.type === 'assistant/message')).toBe(false)
+    expect(session.snapshotEvents().some(event => event.type === 'tool/call')).toBe(false)
+    expect(session.snapshotEvents().some(event => event.type === 'tool/result')).toBe(false)
+    expect(session.snapshotEvents().filter(event => event.type === 'theater/segment-started')).toHaveLength(5)
+    expect(session.snapshotEvents().filter(event => event.type === 'theater/segment-ended')).toHaveLength(5)
     expect(performance.forkablePositions).toHaveLength(6)
 
     const firstStartFlush = flushes.find(flush =>
       flush.sessionId === performanceId && flush.lastType === 'theater/segment-started')
     expect(firstStartFlush).toMatchObject({ blackSeq: 2, whiteSeq: 2 })
-    for (const end of session.events.filter(event => event.type === 'theater/segment-ended')) {
+    for (const end of session.snapshotEvents().filter(event => event.type === 'theater/segment-ended')) {
       const checkpoint = flushes.find(flush =>
         flush.sessionId === performanceId
         && flush.lastType === 'theater/segment-ended'
         && flush[end.data.characterId === 'black' ? 'blackSeq' : 'whiteSeq'] === end.data.characterSessionSeq)
       expect(checkpoint).toBeDefined()
     }
-    const boundaries = session.events
+    const boundaries = session.snapshotEvents()
       .filter(event => event.type === 'theater/segment-started' || event.type === 'theater/segment-ended')
       .map(event => [event.type, event.data.characterId])
     expect(boundaries).toEqual([
@@ -264,7 +241,7 @@ describe('Performance Theater', () => {
 
     for (const character of ['black', 'white'] as const) {
       const characterSession = ctx.sessions.get(characterSessionId(performanceId, character))!
-      expect(characterSession.events.slice(0, 2).map(event => String(event.type))).toEqual([
+      expect(characterSession.snapshotEvents().slice(0, 2).map(event => String(event.type))).toEqual([
         'session/title',
         'theater/character-configured',
       ])
@@ -272,16 +249,16 @@ describe('Performance Theater', () => {
       expect(characterSession.header.agentPreset).toBeUndefined()
       expect(systems.get(String(characterSession.id))).toContain(`You are the ${character} Gomoku test Character.`)
       expect(systems.get(String(characterSession.id))).not.toContain('Host default persona.')
-      expect(characterSession.events.some(event => event.type === 'agent-preset/selected')).toBe(false)
-      expect(characterSession.events.some(event => event.type === 'user/message')).toBe(true)
-      const instructions = characterSession.events
+      expect(characterSession.snapshotEvents().some(event => event.type === 'agent-preset/selected')).toBe(false)
+      expect(characterSession.snapshotEvents().some(event => event.type === 'user/message')).toBe(true)
+      const instructions = characterSession.snapshotEvents()
         .flatMap(event => event.type === 'user/message' ? event.data.content : [])
         .flatMap(block => block.type === 'text' ? [block.text] : [])
       expect(instructions[0]).toContain('Previous action:')
       expect(instructions[0]).toContain('Make exactly one legal test move.')
-      expect(characterSession.events.some(event => event.type === 'tool/call')).toBe(true)
-      expect(characterSession.events.some(event => event.type === 'stage/op')).toBe(false)
-      expect(JSON.stringify(characterSession.events)).not.toContain('stage/op')
+      expect(characterSession.snapshotEvents().some(event => event.type === 'tool/call')).toBe(true)
+      expect(characterSession.snapshotEvents().some(event => event.type === 'stage/op')).toBe(false)
+      expect(JSON.stringify(characterSession.snapshotEvents())).not.toContain('stage/op')
     }
     const black = ctx.agents.get(characterSessionId(performanceId, 'black'))!
     const white = ctx.agents.get(characterSessionId(performanceId, 'white'))!
@@ -323,7 +300,7 @@ describe('Performance Theater', () => {
       let disabled = false
       ctx.on('session/flush', (session) => {
         if (session.id !== performanceId || disabled
-          || session.events.at(-1)?.type !== 'theater/segment-started') return
+          || session.snapshotEvents().at(-1)?.type !== 'theater/segment-started') return
         disabled = true
         ctx!.theater.setAutoAdvance(performanceId, false)
       })
@@ -375,7 +352,7 @@ describe('Performance Theater', () => {
     const source = ctx.theater.read(sourceId)
     const sourceSession = ctx.sessions.get(sourceId)!
 
-    const open = sourceSession.events.find(event => event.type === 'theater/segment-started')!
+    const open = sourceSession.snapshotEvents().find(event => event.type === 'theater/segment-started')!
     const rejectedId = SessionId('performance-fork-rejected')
     await expect(ctx.theater.fork({
       sourcePerformanceId: sourceId,
@@ -392,11 +369,13 @@ describe('Performance Theater', () => {
       childPerformanceId: initialId,
     })
     expect(ctx.sessions.get(initialId)?.header.cwd).toBe(FIXTURES)
-    expect(ctx.sessions.get(characterSessionId(initialId, 'black'))?.header).toMatchObject({
+    const initialBlack = ctx.sessions.get(characterSessionId(initialId, 'black'))
+    expect(initialBlack?.header).toMatchObject({
       cwd: FIXTURES,
       parentSession: characterSessionId(sourceId, 'black'),
-      seedLength: 0,
+      isSeeded: true,
     })
+    expect(initialBlack?.inheritedEventCount).toBe(0)
 
     const laterCursor = source.forkablePositions[2]!
     const laterId = SessionId('performance-fork-later')
@@ -407,17 +386,19 @@ describe('Performance Theater', () => {
     })
     const later = ctx.theater.read(laterId)
     expect(later.lineage).toEqual({ parentSession: sourceId, seedLength: laterCursor })
-    const prefixEnds = sourceSession.events.slice(0, laterCursor)
+    const prefixEnds = sourceSession.snapshotEvents().slice(0, laterCursor)
       .filter(event => event.type === 'theater/segment-ended')
     for (const character of ['black', 'white'] as const) {
       const watermark = prefixEnds
         .filter(event => event.data.characterId === character)
         .at(-1)?.data.characterSessionSeq ?? 0
-      expect(ctx.sessions.get(characterSessionId(laterId, character))?.header).toMatchObject({
+      const childCharacter = ctx.sessions.get(characterSessionId(laterId, character))
+      expect(childCharacter?.header).toMatchObject({
         cwd: FIXTURES,
         parentSession: characterSessionId(sourceId, character),
-        seedLength: watermark,
+        isSeeded: true,
       })
+      expect(childCharacter?.inheritedEventCount).toBe(watermark)
     }
 
     const divergentId = SessionId('performance-fork-child')
@@ -468,12 +449,12 @@ describe('Performance Theater', () => {
 
     const performance = ctx.theater.read(performanceId)
     const session = ctx.sessions.get(performanceId)!
-    const starts = session.events.filter(event => event.type === 'theater/segment-started')
+    const starts = session.snapshotEvents().filter(event => event.type === 'theater/segment-started')
     expect(starts.slice(0, 2).map(event => event.data.characterId)).toEqual(['black', 'black'])
     expect(starts).toHaveLength(6)
-    expect(session.events.filter(event => event.type === 'stage/op')).toHaveLength(5)
+    expect(session.snapshotEvents().filter(event => event.type === 'stage/op')).toHaveLength(5)
     const black = ctx.sessions.get(characterSessionId(performanceId, 'black'))!
-    const results = black.events.filter(event => event.type === 'tool/result')
+    const results = black.snapshotEvents().filter(event => event.type === 'tool/result')
     expect(results.some(event => JSON.stringify(event.data).includes('coordinate is outside the board'))).toBe(true)
     expect(performance.stages.board1?.state).toMatchObject({ winner: 'black', moveNumber: 5 })
   })
@@ -498,11 +479,11 @@ describe('Performance Theater', () => {
     const failed = ctx.theater.read(sourceId)
     const session = ctx.sessions.get(sourceId)!
     expect(failed).toMatchObject({ phase: 'failed', activity: 'idle' })
-    expect(session.events.at(-1)).toMatchObject({
+    expect(session.snapshotEvents().at(-1)).toMatchObject({
       type: 'theater/segment-ended',
       data: { characterId: 'black', outcome: 'error' },
     })
-    expect(failed.forkablePositions.at(-1)).toBe(session.events.length)
+    expect(failed.forkablePositions.at(-1)).toBe(session.snapshotEvents().length)
     expect(failed.stages.board1?.state).toMatchObject({ moveNumber: 0 })
 
     const childId = SessionId('performance-recovered')
@@ -547,10 +528,10 @@ describe('Performance Theater', () => {
         stages: { board1: { state: { winner: 'black', moveNumber: 5 } } },
       })
       const performance = reader.sessions.get(performanceId)!
-      expect(performance.events.filter(event => event.type === 'theater/segment-ended')[0]).toMatchObject({
+      expect(performance.snapshotEvents().filter(event => event.type === 'theater/segment-ended')[0]).toMatchObject({
         data: { outcome: 'error' },
       })
-      expect(performance.events.filter(event => event.type === 'theater/segment-ended').at(-1)).toMatchObject({
+      expect(performance.snapshotEvents().filter(event => event.type === 'theater/segment-ended').at(-1)).toMatchObject({
         data: { outcome: 'completed' },
       })
       await reader.fiber.dispose()
@@ -673,7 +654,7 @@ describe('Performance Theater', () => {
       phase: 'completed',
       stages: { board1: { completed: false, state: { isFinished: false } } },
     })
-    expect(ctx.sessions.get(completedId)?.events.some(event =>
+    expect(ctx.sessions.get(completedId)?.snapshotEvents().some(event =>
       event.type === 'theater/segment-started')).toBe(false)
   })
 
@@ -700,7 +681,7 @@ describe('Performance Theater', () => {
       lastMove: { x: 0, y: 2 },
       winner: 'black',
     })
-    expect(ctx.sessions.get(firstId)?.events.filter(event => event.type === 'stage/op')).toHaveLength(5)
-    expect(ctx.sessions.get(secondId)?.events.filter(event => event.type === 'stage/op')).toHaveLength(5)
+    expect(ctx.sessions.get(firstId)?.snapshotEvents().filter(event => event.type === 'stage/op')).toHaveLength(5)
+    expect(ctx.sessions.get(secondId)?.snapshotEvents().filter(event => event.type === 'stage/op')).toHaveLength(5)
   })
 })

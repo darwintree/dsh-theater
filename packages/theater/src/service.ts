@@ -3,20 +3,21 @@
 import { Service, type Context } from '@deepseek-ai/cordis'
 import type { Agent, ModelSelection } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
-import { suppressAgentInstructions } from '@deepseek-ai/dsh-agent-instructions'
+import * as AgentInstructions from '@deepseek-ai/dsh-agent-instructions'
 import type {} from '@deepseek-ai/dsh-agent-presets'
 import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import {
   SessionId,
-  snapshotJsonValue,
-  type JsonValue,
+  SessionLogOffset,
+  SessionSeq,
   type Session,
   type SessionEvent,
   type SessionId as SessionIdType,
 } from '@deepseek-ai/dsh-session'
+import { snapshotJsonValue, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-session-title'
-import { PERSONA_ORDER, PERSONA_SECTION } from '@deepseek-ai/dsh-system-prompt'
+import { PERSONA_PREFIX_SECTION } from '@deepseek-ai/dsh-system-prompt'
 import {
   AnonymousEntries,
   ScopedLayers,
@@ -182,8 +183,20 @@ export class TheaterService extends Service {
     const contributions = await this.resolveContributions(presetId)
     const configured = resolvedConfiguration(presetId, contributions)
     const scope = createScope(this.ctx, { performanceId })
+    let pendingHandle: { close(): Promise<void> } | undefined
     try {
-      const session = scope.ctx.sessions.create(performanceId, { meta: { cwd: input.cwd } })
+      const session = scope.ctx.sessions.prepare(performanceId, { meta: { cwd: input.cwd } })
+      const persistence = this.ctx.get('sessionPersistence')
+      if (persistence !== undefined) {
+        pendingHandle = await persistence.create(session.header, {
+          inheritedEventCount: session.inheritedEventCount,
+        })
+      }
+      scope.ctx.effect(function* () {
+        yield scope.ctx.sessions.enter(session)
+        scope.ctx.sessions.announce(session)
+      }, `theater.performance(${performanceId})`)
+      pendingHandle = undefined
       this.ensureSessionTitle(session, contributions.title)
       const runtime = this.runtime(scope, session, configured, contributions)
       await this.openStages(runtime)
@@ -200,6 +213,7 @@ export class TheaterService extends Service {
       return this.read(performanceId)
     } catch (error) {
       this.live.delete(performanceId)
+      await pendingHandle?.close().catch(() => {})
       await scope.dispose()
       throw error
     }
@@ -211,17 +225,28 @@ export class TheaterService extends Service {
     const persistence = this.ctx.get('sessionPersistence')
     if (persistence === undefined) throw new Error('cannot resume Performance: session persistence is not configured')
     const scope = createScope(this.ctx, { performanceId })
-    const preparation = await persistence.prepare(performanceId)
+    let pendingHandle: { close(): Promise<void> } | undefined
     try {
-      const session = preparation.session
+      const handle = await persistence.open(performanceId, 'write')
+      pendingHandle = handle
+      const coldRead = await handle.read()
+      const session = scope.ctx.sessions.prepare(performanceId, {
+        seed: [...coldRead.events],
+        meta: structuredClone(handle.header),
+        inheritedEventCount: handle.inheritedEventCount,
+        eventState: coldRead.eventState,
+      })
       if (session.header.cwd === undefined) {
         throw new Error('cannot resume Performance: Session header has no cwd')
       }
+      const unstoredSuffix = session.snapshotEvents(SessionLogOffset(coldRead.events.length))
+      if (unstoredSuffix.length > 0) await handle.append(unstoredSuffix)
       scope.ctx.effect(function* () {
         yield scope.ctx.sessions.enter(session)
         scope.ctx.sessions.announce(session)
       }, `theater.performance(${performanceId})`)
-      const durable = analyze(session.events).configured
+      pendingHandle = undefined
+      const durable = analyze(session.snapshotEvents()).configured
       let contributions: TheaterContributions | undefined
       let current: TheaterConfigured | undefined
       let incompatibility: Error | undefined
@@ -253,10 +278,9 @@ export class TheaterService extends Service {
       return this.read(performanceId)
     } catch (error) {
       this.live.delete(performanceId)
+      await pendingHandle?.close().catch(() => {})
       await scope.dispose()
       throw error
-    } finally {
-      preparation[Symbol.dispose]()
     }
   }
 
@@ -266,10 +290,11 @@ export class TheaterService extends Service {
     this.assertAvailable(childId)
     const source = this.requireRuntime(sourceId)
     if (source.phase === 'incompatible') throw source.error
-    if (!Number.isSafeInteger(input.cursor) || input.cursor < 1 || input.cursor > source.session.events.length) {
-      throw new Error(`Performance fork cursor must be an exclusive sequence between 1 and ${source.session.events.length}`)
+    const sourceEvents = source.session.snapshotEvents()
+    if (!Number.isSafeInteger(input.cursor) || input.cursor < 1 || input.cursor > sourceEvents.length) {
+      throw new Error(`Performance fork cursor must be an exclusive sequence between 1 and ${sourceEvents.length}`)
     }
-    const prefix = source.session.events.slice(0, input.cursor)
+    const prefix = sourceEvents.slice(0, input.cursor)
     const selected = analyze(prefix)
     if (selected.stack.length !== 0) throw new Error(`Performance fork cursor ${input.cursor} is not a Director Point`)
     const contributions = await this.resolveContributions(selected.configured.presetId)
@@ -281,15 +306,24 @@ export class TheaterService extends Service {
       const parentId = characterSessionId(sourceId, character.id)
       const parent = this.ctx.sessions.get(parentId)
       if (parent === undefined) throw new Error(`source Character Session is not live: ${parentId}`)
+      const parentEvents = parent.snapshotEvents()
       const watermark = selected.watermarks.get(character.id) ?? 0
-      if (!Number.isSafeInteger(watermark) || watermark < 0 || watermark > parent.events.length) {
+      if (!Number.isSafeInteger(watermark) || watermark < 0 || watermark > parentEvents.length) {
         throw new Error(`invalid Character Session watermark ${watermark} for ${JSON.stringify(character.id)}`)
       }
-      return { character, parent, watermark, seed: parent.events.slice(0, watermark) }
+      return { character, parent, watermark, seed: parentEvents.slice(0, watermark) }
     })
     const scope = createScope(this.ctx, { performanceId: childId })
     try {
-      const session = scope.ctx.sessions.fork(source.session, input.cursor - 1, childId)
+      const session = scope.ctx.sessions.fork(source.session, SessionSeq(input.cursor - 1), childId)
+      const persistence = this.ctx.get('sessionPersistence')
+      if (persistence !== undefined) {
+        const handle = await persistence.create(session.header, {
+          inheritedEventCount: session.inheritedEventCount,
+        })
+        const seedEvents = session.snapshotEvents()
+        if (seedEvents.length > 0) await handle.append(seedEvents)
+      }
       const runtime = this.runtime(scope, session, selected.configured, contributions)
       await this.openStages(runtime)
       await this.createCharacters(runtime, seeds)
@@ -340,7 +374,7 @@ export class TheaterService extends Service {
     const runtime = this.requireRuntime(performanceId)
     const cwd = runtime.session.header.cwd
     if (cwd === undefined) throw new Error('Performance Session header has no cwd')
-    const analysis = analyze(runtime.session.events)
+    const analysis = analyze(runtime.session.snapshotEvents())
     const characters = Object.fromEntries(runtime.configured.characters.map(character => [
       character.id,
       characterSessionId(runtime.session.id, character.id),
@@ -366,7 +400,7 @@ export class TheaterService extends Service {
       forkablePositions: analysis.forkablePositions,
       lineage: {
         ...runtime.session.header.parentSession === undefined ? {} : { parentSession: runtime.session.header.parentSession },
-        ...runtime.session.header.seedLength === undefined ? {} : { seedLength: runtime.session.header.seedLength },
+        ...runtime.session.header.isSeeded ? { seedLength: runtime.session.inheritedEventCount } : {},
       },
     }
   }
@@ -432,7 +466,7 @@ export class TheaterService extends Service {
     characterId: string,
     instruction: readonly ContentBlock[],
   ): Promise<void> {
-    const open = analyze(runtime.session.events)
+    const open = analyze(runtime.session.snapshotEvents())
     if (open.stack.length !== 0) throw new Error('cannot start a Character Segment while another Segment is open')
     const { read, error } = await this.runTurn(runtime, characterId, instruction)
     if (read.outcome !== 'completed') {
@@ -461,7 +495,7 @@ export class TheaterService extends Service {
         source: { kind: 'plugin', plugin: '@darwintree/dsh-theater', form: 'instructions' },
       }))
       await character.whenIdle()
-      const turnEnd = character.session.events.slice(before).reverse()
+      const turnEnd = character.session.snapshotEvents().slice(before).reverse()
         .find((event): event is SessionEvent<'turn/end'> => event.type === 'turn/end')
       if (turnEnd === undefined) throw new Error(`Character ${JSON.stringify(characterId)} produced no completed turn`)
       ended = settlement(turnEnd.data.reason)
@@ -476,7 +510,7 @@ export class TheaterService extends Service {
     await runtime.scope.ctx.sessions.flush(character.session)
     await runtime.scope.ctx.sessions.flush(runtime.session)
     const characterSessionSeq = character.session.seq
-    const top = analyze(runtime.session.events).stack.at(-1)
+    const top = analyze(runtime.session.snapshotEvents()).stack.at(-1)
     if (top !== characterId) throw new Error(`Character Segment end for ${JSON.stringify(characterId)} violates LIFO order`)
     runtime.session.append('theater/segment-ended', {
       characterId,
@@ -484,7 +518,7 @@ export class TheaterService extends Service {
       ...ended,
     })
     await runtime.scope.ctx.sessions.flush(runtime.session)
-    const events = this.turnEvents(character.session.events.slice(before, characterSessionSeq))
+    const events = this.turnEvents(character.session.snapshotEvents().slice(before, characterSessionSeq))
     if (actionError !== undefined && events.length === 0) throw actionError
     const read = { characterId, outcome: ended.outcome, events }
     return ended.error === undefined ? { read } : { read, error: ended.error }
@@ -499,7 +533,7 @@ export class TheaterService extends Service {
     const reads: CharacterTurnRead[] = []
     const stack: string[] = []
     const watermarks = new Map<string, number>()
-    for (const event of runtime.session.events) {
+    for (const event of runtime.session.snapshotEvents()) {
       if (event.type === 'theater/segment-started') {
         stack.push(event.data.characterId)
         continue
@@ -512,7 +546,7 @@ export class TheaterService extends Service {
       const session = this.requireCharacter(runtime, characterId).session
       const before = watermarks.get(characterId) ?? 0
       const after = event.data.characterSessionSeq
-      const events = this.turnEvents(session.events.slice(before, after))
+      const events = this.turnEvents(session.snapshotEvents().slice(before, after))
       watermarks.set(characterId, after)
       if (stack.length === 0) {
         reads.push({ characterId, outcome: event.data.outcome, events })
@@ -610,12 +644,15 @@ export class TheaterService extends Service {
       const seed = byId.get(character.id)
       const handle = await runtime.scope.ctx.agents.create({
         sessionId: characterSessionId(runtime.session.id, character.id),
-        ...seed === undefined ? {} : { seed: seed.seed },
+        ...seed === undefined ? {} : {
+          seed: seed.seed,
+          inheritedEventCount: SessionLogOffset(seed.watermark),
+        },
         meta: {
           cwd,
           ...seed === undefined ? {} : {
             parentSession: seed.parent.id,
-            seedLength: seed.watermark,
+            isSeeded: true,
           },
         },
         agentOptions: character.model ?? runtime.scope.ctx.agentDefaultModel.currentSelection(),
@@ -636,7 +673,7 @@ export class TheaterService extends Service {
         agentOptions: character.model ?? runtime.scope.ctx.agentDefaultModel.currentSelection(),
         setup: agentCtx => this.setupCharacter(runtime, character.id, agentCtx),
       })
-      const marker = handle.agent.session.events.find(event => event.type === 'theater/character-configured')
+      const marker = handle.agent.session.snapshotEvents().find(event => event.type === 'theater/character-configured')
       if (marker?.type !== 'theater/character-configured' || marker.data.characterId !== character.id) {
         await handle.dispose()
         throw new Error(`Character ${JSON.stringify(character.id)} is missing its durable Theater configuration`)
@@ -649,7 +686,7 @@ export class TheaterService extends Service {
   }
 
   private ensureSessionTitle(session: Session, title: string): void {
-    if (session.events.some(event => event.type === 'session/title')) return
+    if (session.snapshotEvents().some(event => event.type === 'session/title')) return
     session.append('session/title', {
       title,
       messageSeqs: [],
@@ -662,11 +699,26 @@ export class TheaterService extends Service {
     if (contributions === undefined) throw new Error('cannot compose Character without Theater contributions')
     const character = contributions.characters.find(candidate => candidate.id === characterId)
     if (character === undefined) throw new Error(`missing current Character contribution ${JSON.stringify(characterId)}`)
-    suppressAgentInstructions(agentCtx)
+    const instructionsModule = AgentInstructions as {
+      suppressAgentInstructions?: (ctx: Context) => void
+    }
+    if (typeof instructionsModule.suppressAgentInstructions === 'function') {
+      instructionsModule.suppressAgentInstructions(agentCtx)
+    } else {
+      agentCtx.on('agent/pre-step', async ({ agent }, next) => {
+        const decision = await next()
+        for (const message of agent.inbox.nextStep) {
+          if (message.source.kind === 'agent-instructions') agent.inbox.remove(message.id)
+        }
+        if (decision.kind === 'reject') return decision
+        const filtered = decision.messages.filter(message => message.source.kind !== 'agent-instructions')
+        return filtered.length === decision.messages.length ? decision : { ...decision, messages: filtered }
+      }, { prepend: true })
+    }
     agentCtx.systemPrompt.suppressRuntimeContext()
     agentCtx.systemPrompt.section({
-      name: PERSONA_SECTION,
-      order: PERSONA_ORDER,
+      name: PERSONA_PREFIX_SECTION,
+      order: agentCtx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),
       text: character.systemPrompt,
       complete: true,
     })
@@ -679,7 +731,7 @@ export class TheaterService extends Service {
       }
     }
     const currentTurnKind = (): 'top-level' | 'nested' => {
-      const stack = analyze(runtime.session.events).stack
+      const stack = analyze(runtime.session.snapshotEvents()).stack
       if (stack.at(-1) !== characterId) {
         throw new Error(`Character ${JSON.stringify(characterId)} has no active Segment`)
       }
@@ -702,7 +754,7 @@ export class TheaterService extends Service {
   }
 
   private ensureCharacterMarker(session: Session, characterId: string): void {
-    const marker = session.events.find(event => event.type === 'theater/character-configured')
+    const marker = session.snapshotEvents().find(event => event.type === 'theater/character-configured')
     if (marker === undefined) {
       session.append('theater/character-configured', { characterId })
       return
