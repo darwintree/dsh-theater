@@ -2,31 +2,30 @@
 
 `ctx.theater` composes durable multi-Character Performances from one preset. A
 Performance Session is the public root and is not driven by an Agent Loop. The
-preset may declare Stages, declares each Character's complete Tool creation plan, and
-exactly one domain-owned Director. Theater combines those declarations when it
-creates, resumes, or forks a Performance.
+preset may declare zero or more Stages (`@darwintree/dsh-stage` is optional for
+Stage-free Performances), declares each Character's System Prompt and Tool list
+(which may be empty), and a default Director.
 
-The preset may also declare a Performance `title`, per-Character titles, and a
-per-Character model selection. Theater persists the model selection with its
-configuration and otherwise uses the deployment default model. Session titles
-are written on creation and only filled when missing on resume, so an explicit
-rename is never overwritten.
+At creation time, Theater persists the resolved `Performance Configuration`
+(`systemPrompt`, `model`, resolved Tool configs, and declared Stages) as the
+authoritative snapshot across `resume` and `fork`. On `resume` and `fork`,
+Theater checks structural compatibility (Character roster, Stage IDs and
+State Machine kind/version, and required factory availability) and allows
+replacing or wrapping the `Director`. Session titles are written on creation and
+only filled when missing on resume, so an explicit rename is never overwritten.
 
-Theater owns the Performance Main Loop. At each Director Point it asks the
-Director whether to run one Character Turn or complete the Performance.
-Character Turns run serially in separate Character Sessions, while their Tools
-may operate on Stages owned by the Performance Session. Stage-free Performances
-use the same Main Loop and may be resumed or forked at a Director Point.
+Theater owns the Performance Main Loop. At each `Director Point` it awaits one
+cancellable `Director Decision` (`DirectorContext.signal`), executes an `act`
+Turn or completes the Performance, and halts on any non-completed top-level Turn.
+Only a `completed` top-level Character Turn produces a new `Director Point` /
+`forkablePositions` entry; recovery from runtime Turn failures or mid-Turn
+crashes always forks from the last valid `Director Point`.
 
-Directors can call `readSettledTurns()` to read top-level Character Turns in
-Performance order. Each read contains `{ characterId, outcome, events }` and is
-reconstructed from durable Segment watermarks; nested Turns are omitted.
-
-Theater Tool factories receive a `TheaterToolContext`. It retains `stage(id)`
-and exposes the bound Character roster, `currentTurnKind()`, and
-`runNestedTurn()`. Nested Turns are durable LIFO Segments, bypass the Director,
-and return the same settled Turn read while the calling Character's ReAct Turn
-remains open.
+Directors and Tools share a structured read-only view of Character Turns
+(`entries` and paired `toolCalls`) without touching raw DSH Session events.
+`TheaterToolContext` exposes `stage(id)`, the Character roster,
+`currentTurnKind()`, `readCurrentTurn()`, `readSettledTurns()`,
+`runNestedTurn()`, and `abortTurn(reason)`.
 
 ## Usage
 
@@ -42,12 +41,28 @@ await ctx.theater.fork({
 })
 ```
 
-The Performance preset may set `autoAdvance` (default `true`). With automatic
-advancement disabled, creation settles at the initial Director Point and each
-call advances at most one Character Turn:
+Advancement pacing and human-driven control live inside pluggable `Director`
+implementations and wrappers (`createStepDirector`, `createHumanDirector`,
+`createTurnLimitDirector`), and an active Performance can be stopped cleanly at
+any time via `ctx.theater.stop(performanceId)`:
 
 ```ts
-await ctx.theater.advance(performanceId)
-ctx.theater.setAutoAdvance(performanceId, true)
+import { createHumanDirector, createStepDirector } from '@darwintree/dsh-theater'
+
+const stepper = createStepDirector()
+await ctx.theater.create({
+  performanceId,
+  presetId,
+  cwd,
+  wrapDirector: base => stepper.wrap(base),
+})
+await stepper.step()
+stepper.setContinuous(true)
 await ctx.theater.whenIdle(performanceId)
+
+const human = createHumanDirector()
+await ctx.theater.resume({ performanceId, director: human.director })
+const req = await human.nextRequest()
+req.act('black', [{ type: 'text', text: 'Make your move.' }])
+await ctx.theater.stop(performanceId)
 ```

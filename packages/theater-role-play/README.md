@@ -1,9 +1,9 @@
 # Theater Role-play
 
-Stage-free Role-play scheduling for `@darwintree/dsh-theater`.
+Stage-free Role-play scheduling for `@darwintree/dsh-theater` (no `@darwintree/dsh-stage` required).
 
 The default plugin registers the seven Role-play Tool factories. `./director`
-contributes the durable-history Director, and `./v3` loads its scene, cast,
+contributes the structured-Turn Director, and `./v3` loads its scene, cast,
 system guidance, and prompt headings from the package-local `preset/v3.yml`.
 Its scene title names the Performance Session and prefixes each Character
 Session title, for example `王之酒宴 · Saber`.

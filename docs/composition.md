@@ -81,8 +81,9 @@ Preset resolution
 
 ## Performance composition
 
-A Performance preset is the single composition root for its Stages, each
-Character's System Prompt and complete Tool list, and its Director:
+A Performance preset is the single composition root for its optional Stages, each
+Character's System Prompt and complete Tool list (which may be empty for
+text-only Characters), and its default Director:
 
 ```yaml
 - id: stages
@@ -95,7 +96,6 @@ Character's System Prompt and complete Tool list, and its Director:
 - id: performance
   name: '@darwintree/dsh-theater/preset'
   config:
-    autoAdvance: true
     characters:
       black:
         model: { provider: deepseek-official, model: deepseek-v4-flash }
@@ -119,18 +119,25 @@ Character's System Prompt and complete Tool list, and its Director:
 ```
 
 Stage and Tool factory providers register process capabilities at host startup.
-The preset stores only creation plans. For each Performance runtime, Theater
-opens the declared Stages in the Performance Session, materializes fresh Tools
-bound to those Stages, shadows the deployment persona with the declared System
-Prompt, and registers the exact Tool list in each bare Character Agent scope.
-Each Character uses its declared model selection or the deployment default;
-a declared choice is durable across resume and fork.
-A Tool receives a bound Stage handle; it does not know the Performance,
-Character, owner Session, or Session ID convention.
+`@darwintree/dsh-stage` is optional when a Performance declares no Stages.
+`@darwintree/dsh-theater/preset` handles flat declarative presets, while
+template-driven domains (such as `@darwintree/dsh-theater-role-play/v3`) may
+contribute Characters, titles, and a default Director directly via
+`ctx.theater.register*`.
+
+For each Performance runtime, Theater captures the resolved Characters, Tool
+configurations, and declared Stages into a durable `Performance Configuration`
+snapshot. That snapshot remains authoritative across `resume` and `fork`, where
+Theater verifies structural compatibility (Character IDs, declared Stage IDs and
+State Machine kind/version, and required factory availability) rather than
+byte-for-byte preset equality. A Tool receives a bound Stage handle, structured
+Turn read views, and an explicit Turn-abort contract without touching raw DSH
+Sessions or Agent handles.
+
+The `Director` is excluded from durable identity and may be replaced or wrapped
+at `create`, `resume`, or `fork` time (for example, switching between automatic,
+step-gated, turn-limited, and human-driven Directors via `createStepDirector`,
+`createTurnLimitDirector`, or `createHumanDirector`).
 
 This keeps two Performances isolated even when they use the same preset and
 Stage IDs. Character Sessions do not mount separate Agent Presets.
-
-`autoAdvance` defaults to `true`. With `false`, Theater waits at each Director
-Point until a caller grants one Character Turn through `ctx.theater.advance()`.
-The current runtime may be switched with `setAutoAdvance()`.

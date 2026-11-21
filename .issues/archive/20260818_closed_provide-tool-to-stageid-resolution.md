@@ -2,11 +2,11 @@
 # This section is managed by the CLI. Do not edit manually.
 id: "4cce2001-d872-4ae7-895e-7966e5b85616"
 title: "Provide tool-to-stageId resolution"
-status: "open"
+status: "closed"
 priority: "medium"
 labels: ["FEATURE REQUEST", "NEEDS-TRIAGE"]
 created_at: "2026-08-18T09:10:00Z"
-updated_at: "2026-08-18T09:10:00Z"
+updated_at: "2026-11-21T03:35:00Z"
 ---
 ## Problem
 
@@ -29,3 +29,7 @@ Stage tool 当前只能用 `${sessionId}-stage` 推导目标 stageId，因此一
 - 缺失或歧义的 stageId 映射会明确失败。
 - 持久化、恢复与 replay 使用解析后的 stageId。
 - 有测试覆盖单 Session 多 Stage 的路由与隔离。
+
+## Resolution
+
+Resolved by ADR-0002 (`(owning Session, Stage ID)` scoping), preset-scoped Stage declarations (`@darwintree/dsh-stage/preset` + `StageService.ensureDeclared()`), and Theater-bound Stage handles (`TheaterToolContext.stage(stageId)`), demonstrated with multi-Stage routing in `example/three-board-gomoku`.

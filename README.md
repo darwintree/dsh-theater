@@ -44,7 +44,7 @@ git checkout -- pnpm-workspace.yaml pnpm-lock.yaml && pnpm install
 pnpm build
 ```
 
-2. Mount the core bundles (`stage`, `theater`) plus whichever optional scenario bundles you want into a DSH profile (order does not matter because Cordis activates by service availability, and each scenario bundle's `dsh.bundle.patch` registers both its host plugins and its `@deepseek-ai/dsh-agent-preset` declarations automatically):
+2. Mount `@darwintree/dsh-theater` plus `@darwintree/dsh-stage` (optional when running only Stage-free Performances such as `role-play-v3`) and whichever optional scenario bundles you want into a DSH profile (order does not matter because Cordis activates by service availability, and each scenario bundle's `dsh.bundle.patch` registers both its host plugins and its `@deepseek-ai/dsh-agent-preset` declarations automatically):
 
 ```bash
 dsh plugin --profile theater-dev add \

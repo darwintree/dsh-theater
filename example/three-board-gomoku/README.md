@@ -7,8 +7,8 @@ three boards.
 
 The Director derives the schedule from the boards: Challenger 1, Challenger 2,
 Challenger 3, then the Master until every pending black move has a white reply.
-The preset disables automatic advancement so each Character Turn can be
-inspected with `ctx.theater.advance()`.
+Wrap the default Director with `createStepDirector()` when you want to inspect
+each Character Turn one step at a time.
 
 Install the Stage, Theater, Gomoku, and example bundles; `dsh.bundle.patch`
 registers both the host plugin and the `three-board-gomoku` preset automatically
@@ -24,7 +24,7 @@ dsh plugin --profile theater-dev add \
   ./example/three-board-gomoku
 ```
 
-Run a headless smoke test or drive the Performance programmatically through `ctx.theater`:
+Run a headless smoke test or drive the Performance step-by-step through `ctx.theater`:
 
 ```sh
 dsh --profile theater-dev \
@@ -33,10 +33,15 @@ dsh --profile theater-dev \
 ```
 
 ```ts
+import { createStepDirector } from '@darwintree/dsh-theater'
+
+const stepper = createStepDirector()
 await ctx.theater.create({
   performanceId,
   presetId: 'three-board-gomoku',
   cwd,
+  wrapDirector: base => stepper.wrap(base),
 })
-await ctx.theater.advance(performanceId)
+await stepper.step()
+await ctx.theater.stop(performanceId)
 ```

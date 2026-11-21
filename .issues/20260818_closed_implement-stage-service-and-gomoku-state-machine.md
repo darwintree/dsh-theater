@@ -105,7 +105,7 @@ updated_at: "2026-08-19T03:34:00Z"
 
 ## Further Notes
 
-- The general resolver is tracked by [[20260818_open_provide-tool-to-stageid-resolution|Provide tool-to-stageId resolution]].
+- The general resolver is tracked by [[archive/20260818_closed_provide-tool-to-stageid-resolution|Provide tool-to-stageId resolution]].
 - The [Stage slice discussion trace](../docs/traces/discussion/2026-08-18-stage-slice.md) is the complete record of resolved questions.
 - The accepted Stage ID ADR records the durable identity and accepted-Op persistence boundary.
 
