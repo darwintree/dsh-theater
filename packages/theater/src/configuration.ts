@@ -31,7 +31,6 @@ export function characterSessionId(
 export function resolvedConfiguration(
   presetId: string,
   contributions: {
-    readonly autoAdvance: boolean
     readonly characters: readonly {
       readonly id: string
       readonly model?: ModelSelection
@@ -46,16 +45,12 @@ export function resolvedConfiguration(
   },
 ): TheaterConfigured {
   nonEmpty(presetId, 'Agent Preset ID')
-  if (typeof contributions.autoAdvance !== 'boolean') throw new Error('Theater autoAdvance must be boolean')
   if (contributions.characters.length === 0) throw new Error('Theater preset requires at least one Character contribution')
   const characterIds = new Set<string>()
   const characters = contributions.characters.map((character) => {
     const id = nonEmpty(character.id, 'Character ID')
     if (characterIds.has(id)) throw new Error(`duplicate Character ID ${JSON.stringify(id)}`)
     characterIds.add(id)
-    if (character.tools.length === 0) {
-      throw new Error(`Character ${JSON.stringify(id)} requires at least one Tool`)
-    }
     return {
       id,
       ...character.model === undefined ? {} : {
@@ -89,11 +84,41 @@ export function resolvedConfiguration(
       config: stage.config,
     }
   })
-  return { presetId, autoAdvance: contributions.autoAdvance, characters, stages }
+  return { presetId, characters, stages }
 }
 
-export function compatible(current: TheaterConfigured, durable: TheaterConfigured): boolean {
-  return JSON.stringify(current) === JSON.stringify(durable)
+/**
+ * Check structural compatibility between current preset structure and a durable
+ * Performance Configuration (ADR-0006). Character prompts, models, Tool plans,
+ * and Stage params are governed by the durable snapshot and are not compared.
+ */
+export function structuralIncompatibility(
+  current: {
+    readonly characterIds: readonly string[]
+    readonly stages: readonly { readonly stageId: string; readonly machine: string; readonly version: string }[]
+  },
+  durable: TheaterConfigured,
+): string | undefined {
+  const currentCharacters = new Set(current.characterIds)
+  const durableCharacters = new Set(durable.characters.map(character => character.id))
+  if (currentCharacters.size !== durableCharacters.size
+    || [...durableCharacters].some(id => !currentCharacters.has(id))) {
+    return 'current Character roster is incompatible with durable Performance configuration'
+  }
+  const currentStages = new Map(current.stages.map(stage => [stage.stageId, stage]))
+  if (currentStages.size !== durable.stages.length) {
+    return 'current Stage declarations are incompatible with durable Performance configuration'
+  }
+  for (const durableStage of durable.stages) {
+    const currentStage = currentStages.get(durableStage.stageId)
+    if (currentStage === undefined) {
+      return `declared Stage ${JSON.stringify(durableStage.stageId)} is missing from current preset`
+    }
+    if (currentStage.machine !== durableStage.machine || currentStage.version !== durableStage.version) {
+      return `Stage ${JSON.stringify(durableStage.stageId)} machine/version is incompatible with durable Performance configuration`
+    }
+  }
+  return undefined
 }
 
 export function failure(error: unknown, code = 'UNKNOWN'): { message: string; code: string } {

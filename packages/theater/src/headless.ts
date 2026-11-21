@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { createTurnLimitDirector } from './directors.js'
 import type {} from './service.js'
 
 export const name = '@darwintree/dsh-theater/headless'
@@ -115,21 +116,6 @@ export function parseHeadlessOptions(
   }
 }
 
-function completedTopLevelSegments(ctx: Context, performanceId: SessionId): number {
-  const session = ctx.sessions.get(performanceId)
-  if (session === undefined) return 0
-  let depth = 0
-  let completed = 0
-  for (const event of session.snapshotEvents()) {
-    if (event.type === 'theater/segment-started') depth += 1
-    else if (event.type === 'theater/segment-ended') {
-      depth -= 1
-      if (depth === 0) completed += 1
-    }
-  }
-  return completed
-}
-
 /** Run a preset-composed Theater Performance in headless mode and print its final read as JSON. */
 export async function runHeadless(
   ctx: Context,
@@ -142,31 +128,33 @@ export async function runHeadless(
 ): Promise<void> {
   const stdout = io.stdout ?? (chunk => { process.stdout.write(chunk) })
   const stderr = io.stderr ?? (chunk => { process.stderr.write(chunk) })
-  let stopAfterFirstSegment: (() => boolean) | undefined
   try {
     await (ctx.get('loader') as { await(): Promise<void> } | undefined)?.await()
     const performanceId = SessionId(options.performanceId)
-    let pausedAutoAdvance = false
-    if (options.maxSegments !== null) {
-      stopAfterFirstSegment = ctx.on('session/flush', (session) => {
-        if (session.id !== performanceId || pausedAutoAdvance
-          || session.snapshotEvents().at(-1)?.type !== 'theater/segment-started') return
-        pausedAutoAdvance = true
-        ctx.theater.setAutoAdvance(performanceId, false)
+
+    if (options.maxSegments === null) {
+      await ctx.theater.create({
+        performanceId,
+        presetId: options.presetId,
+        cwd: options.cwd,
       })
-    }
-
-    await ctx.theater.create({
-      performanceId,
-      presetId: options.presetId,
-      cwd: options.cwd,
-    })
-    await ctx.theater.whenIdle(performanceId)
-
-    while (ctx.theater.read(performanceId).phase === 'active') {
-      const completed = completedTopLevelSegments(ctx, performanceId)
-      if (options.maxSegments !== null && completed >= options.maxSegments) break
-      await ctx.theater.advance(performanceId)
+      await ctx.theater.whenIdle(performanceId)
+    } else {
+      const limiter = createTurnLimitDirector(options.maxSegments)
+      await ctx.theater.create({
+        performanceId,
+        presetId: options.presetId,
+        cwd: options.cwd,
+        wrapDirector: base => limiter.wrap(base),
+      })
+      const idle = ctx.theater.whenIdle(performanceId)
+      idle.catch(() => {})
+      await Promise.race([idle, limiter.whenReached()])
+      if (ctx.theater.read(performanceId).phase === 'active') {
+        await ctx.theater.stop(performanceId)
+      } else {
+        await idle
+      }
     }
 
     const performance = ctx.theater.read(performanceId)
@@ -175,8 +163,6 @@ export async function runHeadless(
   } catch (error) {
     stderr(`dsh: ${error instanceof Error ? error.message : String(error)}\n`)
     io.exit(1)
-  } finally {
-    stopAfterFirstSegment?.()
   }
 }
 

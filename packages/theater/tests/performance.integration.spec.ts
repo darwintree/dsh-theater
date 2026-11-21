@@ -10,7 +10,15 @@ import { describe, expect, it } from 'vitest'
 import { MockLlmAdapter, type Behaviour, type MockResponse } from '@darwintree/dsh-llm-mock'
 import * as Gomoku from '@darwintree/dsh-theater-gomoku'
 import * as GomokuTheater from '@darwintree/dsh-theater-gomoku/theater'
-import { characterSessionId } from '@darwintree/dsh-theater'
+import {
+  characterSessionId,
+  createHumanDirector,
+  createStepDirector,
+  createTurnLimitDirector,
+  type ActiveCharacterTurnRead,
+  type CharacterTurnRead,
+  type TheaterToolFactory,
+} from '@darwintree/dsh-theater'
 import { createDshTestContext, extractSystemPrompt } from '../../../tests/harness.ts'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
@@ -64,8 +72,10 @@ async function setup(
     presetRoot?: string
     defaultPreset?: string
     mountTheater?: boolean
+    mountStage?: boolean
   } = {},
 ): Promise<Context> {
+  const mountStage = options.mountStage ?? true
   const ctx = await createDshTestContext({
     baseDir: FIXTURES,
     ...options.persistenceRoot === undefined ? {} : { persistenceRoot: options.persistenceRoot },
@@ -76,8 +86,11 @@ async function setup(
       dirs: [options.presetRoot ?? join(FIXTURES, 'presets')],
     },
     mountTheater: options.mountTheater ?? true,
+    mountStage,
   })
-  await ctx.plugin(Gomoku)
+  if (mountStage) {
+    await ctx.plugin(Gomoku)
+  }
   ctx.llm.registerAdapter(['mock'], new MockLlmAdapter(behaviour ?? (options =>
     moveScript(
       String(options.sessionId),
@@ -93,7 +106,6 @@ async function setup(
 async function writeCompatibilityPresets(
   root: string,
   config: {
-    autoAdvance?: boolean
     director?: 'complete' | 'gomoku'
     characters: readonly {
       id: string
@@ -102,6 +114,7 @@ async function writeCompatibilityPresets(
       read: boolean
     }[]
     boardSize: number
+    stages?: readonly { id: string; machine: string; boardSize: number }[]
   },
 ): Promise<void> {
   const director = config.director === 'gomoku'
@@ -118,19 +131,22 @@ async function writeCompatibilityPresets(
     '          - factory: gomoku-place-stone',
     `            params: { stage: board1, color: ${character.color} }`,
   ]).join('\n')
+  const stageRows = (config.stages ?? [{ id: 'board1', machine: 'gomoku', boardSize: config.boardSize }])
+    .flatMap(stage => [
+      `      ${stage.id}:`,
+      `        machine: ${stage.machine}`,
+      `        params: { boardSize: ${stage.boardSize}, winLength: 3 }`,
+    ]).join('\n')
   await mkdir(join(root, 'compat'), { recursive: true })
   await writeFile(join(root, 'compat', 'agent.cordis.yml'), [
     '- id: stages',
     "  name: '@darwintree/dsh-stage/preset'",
     '  config:',
     '    stages:',
-    '      board1:',
-    '        machine: gomoku',
-    `        params: { boardSize: ${config.boardSize}, winLength: 3 }`,
+    stageRows,
     '- id: performance',
     "  name: '@darwintree/dsh-theater/preset'",
     '  config:',
-    ...config.autoAdvance === undefined ? [] : [`    autoAdvance: ${config.autoAdvance}`],
     '    characters:',
     rows,
     '- id: director',
@@ -186,7 +202,7 @@ describe('Performance Theater', () => {
     await ctx.theater.whenIdle(performanceId)
 
     const performance = ctx.theater.read(performanceId)
-    expect(performance).toMatchObject({ phase: 'completed', activity: 'idle', autoAdvance: true })
+    expect(performance).toMatchObject({ phase: 'completed', activity: 'idle' })
     expect(performance.stages.board1).toMatchObject({
       state: { moveNumber: 5, winner: 'black', isFinished: true },
     })
@@ -199,16 +215,17 @@ describe('Performance Theater', () => {
     expect(performance.cwd).toBe(FIXTURES)
     expect(session.header.cwd).toBe(FIXTURES)
     expect(session.header.agentPreset).toBeUndefined()
-    expect(session.snapshotEvents().find(event => event.type === 'theater/configured')).toMatchObject({
+    const configuredEvent = session.snapshotEvents().find(event => event.type === 'theater/configured')
+    expect(configuredEvent).toMatchObject({
       data: {
         presetId: 'two-character-gomoku',
-        autoAdvance: true,
         characters: [
           { id: 'black', systemPrompt: 'You are the black Gomoku test Character.' },
           { id: 'white', systemPrompt: 'You are the white Gomoku test Character.' },
         ],
       },
     })
+    expect('autoAdvance' in (configuredEvent?.data ?? {})).toBe(false)
     expect(session.snapshotEvents().filter(event => event.type === 'stage/op')).toHaveLength(5)
     expect(session.snapshotEvents().some(event => event.type === 'user/message')).toBe(false)
     expect(session.snapshotEvents().some(event => event.type === 'assistant/message')).toBe(false)
@@ -266,76 +283,133 @@ describe('Performance Theater', () => {
     expect(ctx.tools.schemas(white).map(tool => tool.name)).toEqual(['place_stone'])
   })
 
-  it('stops automatic driving at the next Director Point, advances once, then resumes automatically', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'dsh-theater-manual-'))
+  it('delegates step-gating and continuous switching to createStepDirector without discarding act decisions (ADR-0008)', async () => {
     let ctx: Context | undefined
     try {
-      await writeCompatibilityPresets(root, {
-        autoAdvance: false,
-        director: 'gomoku',
-        characters: [
-          { id: 'black', systemPrompt: 'You are black.', color: 'black', read: true },
-          { id: 'white', systemPrompt: 'You are white.', color: 'white', read: false },
-        ],
-        boardSize: 3,
-      })
-      ctx = await setup(defaultPlan, undefined, { presetRoot: root, defaultPreset: 'compat' })
-      const performanceId = SessionId('performance-dynamic-advance')
+      ctx = await setup(defaultPlan)
+      const performanceId = SessionId('performance-step-director')
+      const stepper = createStepDirector()
+      let innerCalls = 0
 
-      expect(await ctx.theater.create({ performanceId, presetId: 'compat', cwd: FIXTURES })).toMatchObject({
+      await ctx.theater.create({
+        performanceId,
+        presetId: 'two-character-gomoku',
+        cwd: FIXTURES,
+        wrapDirector: base => stepper.wrap(async (context) => {
+          innerCalls += 1
+          return await base(context)
+        }),
+      })
+
+      await stepper.whenWaiting()
+      expect(innerCalls).toBe(0)
+      expect(ctx.theater.read(performanceId)).toMatchObject({
         phase: 'active',
-        activity: 'idle',
-        autoAdvance: false,
+        activity: 'awaiting-director',
         stages: { board1: { state: { moveNumber: 0 } } },
       })
 
-      const advanced = await ctx.theater.advance(performanceId)
-      expect(advanced).toMatchObject({
+      await stepper.step()
+      expect(innerCalls).toBe(1)
+      expect(ctx.theater.read(performanceId)).toMatchObject({
         phase: 'active',
-        activity: 'idle',
-        autoAdvance: false,
+        activity: 'awaiting-director',
         stages: { board1: { state: { moveNumber: 1 } } },
       })
 
-      let disabled = false
-      ctx.on('session/flush', (session) => {
-        if (session.id !== performanceId || disabled
-          || session.snapshotEvents().at(-1)?.type !== 'theater/segment-started') return
-        disabled = true
-        ctx!.theater.setAutoAdvance(performanceId, false)
-      })
-      ctx.theater.setAutoAdvance(performanceId, true)
-      await ctx.theater.whenIdle(performanceId)
+      await stepper.step()
+      expect(innerCalls).toBe(2)
       expect(ctx.theater.read(performanceId)).toMatchObject({
         phase: 'active',
-        activity: 'idle',
-        autoAdvance: false,
+        activity: 'awaiting-director',
         stages: { board1: { state: { moveNumber: 2 } } },
       })
 
-      expect(await ctx.theater.advance(performanceId)).toMatchObject({
-        phase: 'active',
-        activity: 'idle',
-        stages: { board1: { state: { moveNumber: 3 } } },
-      })
-      expect(() => ctx!.theater.setAutoAdvance(performanceId, 'yes' as never))
-        .toThrow('Performance autoAdvance must be boolean')
+      expect(() => stepper.setContinuous('yes' as never)).toThrow('continuous mode must be boolean')
 
-      expect(ctx.theater.setAutoAdvance(performanceId, true)).toMatchObject({
-        phase: 'active',
-        activity: 'running',
-        autoAdvance: true,
-      })
+      stepper.setContinuous(true)
       await ctx.theater.whenIdle(performanceId)
       expect(ctx.theater.read(performanceId)).toMatchObject({
         phase: 'completed',
         activity: 'idle',
-        autoAdvance: true,
         stages: { board1: { state: { winner: 'black', moveNumber: 5 } } },
       })
+      // 5 acts + 1 complete = 6 exact calls, never discarding an act decision.
+      expect(innerCalls).toBe(6)
     } finally {
       await ctx?.fiber.dispose()
-      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('supports a pluggable Human-driven Director, fork while awaiting-director, and clean cancellation via stop() (ADR-0008)', async () => {
+    const ctx = await setup(defaultPlan)
+    try {
+      const performanceId = SessionId('performance-human-director')
+      const human = createHumanDirector()
+      await ctx.theater.create({
+        performanceId,
+        presetId: 'two-character-gomoku',
+        cwd: FIXTURES,
+        director: human.director,
+      })
+
+      const first = await human.nextRequest()
+      expect(first.context.signal.aborted).toBe(false)
+      expect(ctx.theater.read(performanceId)).toMatchObject({
+        phase: 'active',
+        activity: 'awaiting-director',
+      })
+      first.act('black', [{ type: 'text', text: 'Human instructs black to open.' }])
+
+      const second = await human.nextRequest()
+      expect(second.context.readSettledTurns()).toHaveLength(1)
+      expect(second.context.readSettledTurns()[0]).toMatchObject({
+        characterId: 'black',
+        outcome: 'completed',
+      })
+      expect(ctx.theater.read(performanceId)).toMatchObject({
+        phase: 'active',
+        activity: 'awaiting-director',
+        stages: { board1: { state: { moveNumber: 1 } } },
+      })
+
+      // Fork while the source Performance is parked awaiting-director, switching the child to the default automatic Director.
+      const forkedId = SessionId('performance-human-to-auto-fork')
+      await ctx.theater.fork({
+        sourcePerformanceId: performanceId,
+        cursor: ctx.theater.read(performanceId).forkablePositions.at(-1)!,
+        childPerformanceId: forkedId,
+      })
+      await ctx.theater.whenIdle(forkedId)
+      expect(ctx.theater.read(forkedId)).toMatchObject({
+        phase: 'completed',
+        stages: { board1: { state: { winner: 'black', moveNumber: 5 } } },
+      })
+
+      // Stopping while awaiting-director aborts DirectorContext.signal cleanly and keeps phase: 'active'.
+      const stopped = await ctx.theater.stop(performanceId)
+      expect(second.context.signal.aborted).toBe(true)
+      expect(stopped).toMatchObject({
+        phase: 'active',
+        activity: 'idle',
+        stages: { board1: { state: { moveNumber: 1 } } },
+      })
+
+      // Also verify Human-driven completion.
+      const completeId = SessionId('performance-human-complete')
+      const human2 = createHumanDirector()
+      await ctx.theater.create({
+        performanceId: completeId,
+        presetId: 'two-character-gomoku',
+        cwd: FIXTURES,
+        director: human2.director,
+      })
+      const req = await human2.nextRequest()
+      req.complete()
+      await ctx.theater.whenIdle(completeId)
+      expect(ctx.theater.read(completeId)).toMatchObject({ phase: 'completed', activity: 'idle' })
+    } finally {
+      await ctx.fiber.dispose()
     }
   })
 
@@ -459,7 +533,7 @@ describe('Performance Theater', () => {
     expect(performance.stages.board1?.state).toMatchObject({ winner: 'black', moveNumber: 5 })
   })
 
-  it('durably ends a failed Segment, stops the Theater Main Loop, and recovers from a fork', async () => {
+  it('does not create a Director Point on a failed Turn and recovers by forking from the previous Director Point (ADR-0007)', async () => {
     const ctx = await setup(defaultPlan, (options) => {
       const sessionId = String(options.sessionId)
       if (sessionId.startsWith('performance-failure/') && sessionId.endsWith('/characters/black')) {
@@ -483,7 +557,14 @@ describe('Performance Theater', () => {
       type: 'theater/segment-ended',
       data: { characterId: 'black', outcome: 'error' },
     })
-    expect(failed.forkablePositions.at(-1)).toBe(session.snapshotEvents().length)
+    // Failed Turn does not produce a new Director Point; only the initial Director Point before it is forkable.
+    expect(failed.forkablePositions).toHaveLength(1)
+    expect(failed.forkablePositions[0]).toBeLessThan(session.snapshotEvents().length)
+    await expect(ctx.theater.fork({
+      sourcePerformanceId: sourceId,
+      cursor: session.snapshotEvents().length,
+      childPerformanceId: SessionId('performance-fork-after-error'),
+    })).rejects.toThrow('not a Director Point')
     expect(failed.stages.board1?.state).toMatchObject({ moveNumber: 0 })
 
     const childId = SessionId('performance-recovered')
@@ -499,40 +580,42 @@ describe('Performance Theater', () => {
     })
   })
 
-  it('cold-resumes the Theater Main Loop from durable state without replaying a call stack', async () => {
+  it('cold-resumes from a settled completed Director Point and supports replacing Director on resume (ADR-0006, ADR-0008)', async () => {
     const persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-theater-resume-'))
     try {
       const performanceId = SessionId('performance-cold-resume')
-      const writer = await setup(defaultPlan, (options) => {
-        const sessionId = String(options.sessionId)
-        if (sessionId.endsWith('/characters/black')) {
-          throw LlmError.fromFailure({ message: 'writer stopped', code: 'WRITER_STOPPED' })
-        }
-        return moveScript(
-          sessionId,
-          options.messages.filter(message => message.role === 'assistant').length,
-          defaultPlan,
-        )
-      }, { persistenceRoot })
-      await writer.theater.create({ performanceId, presetId: 'two-character-gomoku', cwd: FIXTURES })
-      await expect(writer.theater.whenIdle(performanceId)).rejects.toThrow('writer stopped')
+      const writer = await setup(defaultPlan, undefined, { persistenceRoot })
+      const limiter = createTurnLimitDirector(2)
+      await writer.theater.create({
+        performanceId,
+        presetId: 'two-character-gomoku',
+        cwd: FIXTURES,
+        wrapDirector: base => limiter.wrap(base),
+      })
+      await limiter.whenReached()
+      await writer.theater.stop(performanceId)
+      expect(writer.theater.read(performanceId)).toMatchObject({
+        phase: 'active',
+        activity: 'idle',
+        stages: { board1: { state: { moveNumber: 2 } } },
+      })
       await writer.fiber.dispose()
 
+      // Resume with a replacement Human-driven Director to finish or take over.
       const reader = await setup(defaultPlan, undefined, { persistenceRoot })
-      await reader.theater.resume({ performanceId })
+      const human = createHumanDirector()
+      await reader.theater.resume({ performanceId, director: human.director })
+      const req = await human.nextRequest()
+      expect(req.context.readSettledTurns()).toHaveLength(2)
+      req.act('black', [{ type: 'text', text: 'Human takes over move 3.' }])
+      const nextReq = await human.nextRequest()
+      expect(reader.theater.read(performanceId).stages.board1?.state).toMatchObject({ moveNumber: 3 })
+      nextReq.complete()
       await reader.theater.whenIdle(performanceId)
 
-      const resumed = reader.theater.read(performanceId)
-      expect(resumed).toMatchObject({
+      expect(reader.theater.read(performanceId)).toMatchObject({
         phase: 'completed',
-        stages: { board1: { state: { winner: 'black', moveNumber: 5 } } },
-      })
-      const performance = reader.sessions.get(performanceId)!
-      expect(performance.snapshotEvents().filter(event => event.type === 'theater/segment-ended')[0]).toMatchObject({
-        data: { outcome: 'error' },
-      })
-      expect(performance.snapshotEvents().filter(event => event.type === 'theater/segment-ended').at(-1)).toMatchObject({
-        data: { outcome: 'completed' },
+        stages: { board1: { state: { moveNumber: 3 } } },
       })
       await reader.fiber.dispose()
     } finally {
@@ -540,55 +623,232 @@ describe('Performance Theater', () => {
     }
   })
 
-  it('keeps historical reads available while refusing incompatible Character or Stage config', async () => {
+  it('keeps resumed failed Turns and unclosed Segments halted in failed phase until recovered via fork (ADR-0007)', async () => {
+    const persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-theater-recovery-'))
+    try {
+      // Case 1: Persisted failed top-level Turn must not silently resume into active.
+      const failedId = SessionId('performance-failed-resume')
+      const writer = await setup(defaultPlan, (options) => {
+        const sessionId = String(options.sessionId)
+        if (sessionId.startsWith('performance-failed-resume/') && sessionId.endsWith('/characters/white')) {
+          throw LlmError.fromFailure({ message: 'white exploded', code: 'WHITE_EXPLODED' })
+        }
+        return moveScript(
+          sessionId,
+          options.messages.filter(message => message.role === 'assistant').length,
+          defaultPlan,
+        )
+      }, { persistenceRoot })
+      await writer.theater.create({ performanceId: failedId, presetId: 'two-character-gomoku', cwd: FIXTURES })
+      await expect(writer.theater.whenIdle(failedId)).rejects.toThrow('white exploded')
+      await writer.fiber.dispose()
+
+      let directorInvoked = false
+      const reader = await setup(defaultPlan, undefined, { persistenceRoot })
+      const resumedFailed = await reader.theater.resume({
+        performanceId: failedId,
+        wrapDirector: base => async (context) => {
+          directorInvoked = true
+          return await base(context)
+        },
+      })
+      expect(resumedFailed).toMatchObject({
+        phase: 'failed',
+        activity: 'idle',
+        error: 'white exploded',
+        stages: { board1: { state: { moveNumber: 1 } } },
+      })
+      expect(directorInvoked).toBe(false)
+      await expect(reader.theater.whenIdle(failedId)).rejects.toThrow('white exploded')
+
+      // Recover via fork from the last completed Director Point (after black's move 1).
+      const recoveredId = SessionId('performance-failed-recovered')
+      await reader.theater.fork({
+        sourcePerformanceId: failedId,
+        cursor: resumedFailed.forkablePositions.at(-1)!,
+        childPerformanceId: recoveredId,
+      })
+      await reader.theater.whenIdle(recoveredId)
+      expect(reader.theater.read(recoveredId)).toMatchObject({
+        phase: 'completed',
+        stages: { board1: { state: { winner: 'black', moveNumber: 5 } } },
+      })
+      await reader.fiber.dispose()
+
+      // Case 2: Unclosed Segment (simulated process crash mid-Turn / mid-nested-Turn) stays failed on resume.
+      const crashedId = SessionId('performance-crashed-resume')
+      const crashWriter = await setup(defaultPlan, undefined, { persistenceRoot })
+      const limiter = createTurnLimitDirector(1)
+      await crashWriter.theater.create({
+        performanceId: crashedId,
+        presetId: 'two-character-gomoku',
+        cwd: FIXTURES,
+        wrapDirector: base => limiter.wrap(base),
+      })
+      await limiter.whenReached()
+      await crashWriter.theater.stop(crashedId)
+      const crashSession = crashWriter.sessions.get(crashedId)!
+      crashSession.append('theater/segment-started', { characterId: 'white' })
+      crashSession.append('theater/segment-started', { characterId: 'black' })
+      await crashWriter.sessions.flush(crashSession)
+      await crashWriter.fiber.dispose()
+
+      let crashDirectorInvoked = false
+      const crashReader = await setup(defaultPlan, undefined, { persistenceRoot })
+      const resumedCrash = await crashReader.theater.resume({
+        performanceId: crashedId,
+        wrapDirector: base => async (context) => {
+          crashDirectorInvoked = true
+          return await base(context)
+        },
+      })
+      expect(resumedCrash.phase).toBe('failed')
+      expect(resumedCrash.activity).toBe('idle')
+      expect(resumedCrash.error).toContain('unclosed Character Segment')
+      expect(crashDirectorInvoked).toBe(false)
+
+      const crashRecoveredId = SessionId('performance-crashed-recovered')
+      await crashReader.theater.fork({
+        sourcePerformanceId: crashedId,
+        cursor: resumedCrash.forkablePositions.at(-1)!,
+        childPerformanceId: crashRecoveredId,
+      })
+      await crashReader.theater.whenIdle(crashRecoveredId)
+      expect(crashReader.theater.read(crashRecoveredId)).toMatchObject({
+        phase: 'completed',
+        stages: { board1: { state: { winner: 'black', moveNumber: 5 } } },
+      })
+      await crashReader.fiber.dispose()
+    } finally {
+      await rm(persistenceRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('treats persisted configuration as authoritative on resume/fork while rejecting structural incompatibility (ADR-0006)', async () => {
     const original = {
+      director: 'gomoku' as const,
       characters: [
-        { id: 'black', systemPrompt: 'You are black.', color: 'black' as const, read: true },
-        { id: 'white', systemPrompt: 'You are white.', color: 'white' as const, read: false },
+        { id: 'black', systemPrompt: 'Original authoritative black prompt.', color: 'black' as const, read: true },
+        { id: 'white', systemPrompt: 'Original authoritative white prompt.', color: 'white' as const, read: false },
       ],
       boardSize: 3,
     }
-    const cases = [
+
+    // 1. Non-structural preset edits (systemPrompt, tools plan, stage params) stay compatible and persisted config remains authoritative.
+    const evolveRoot = await mkdtemp(join(tmpdir(), 'dsh-theater-authoritative-'))
+    try {
+      const persistenceRoot = join(evolveRoot, 'sessions')
+      const presetRoot = join(evolveRoot, 'presets')
+      await writeCompatibilityPresets(presetRoot, original)
+      const performanceId = SessionId('performance-authoritative')
+      const writer = await setup(defaultPlan, undefined, {
+        persistenceRoot,
+        presetRoot,
+        defaultPreset: 'compat',
+      })
+      const limiter = createTurnLimitDirector(1)
+      await writer.theater.create({
+        performanceId,
+        presetId: 'compat',
+        cwd: FIXTURES,
+        wrapDirector: base => limiter.wrap(base),
+      })
+      await limiter.whenReached()
+      await writer.theater.stop(performanceId)
+      await writer.fiber.dispose()
+
+      // Edit preset systemPrompt, remove read_board from black's tools, and change boardSize from 3 to 5.
+      await writeCompatibilityPresets(presetRoot, {
+        director: 'gomoku',
+        characters: [
+          { id: 'black', systemPrompt: 'Mutated black prompt that must NOT overwrite persisted snapshot.', color: 'black', read: false },
+          { id: 'white', systemPrompt: 'Mutated white prompt that must NOT overwrite persisted snapshot.', color: 'white', read: false },
+        ],
+        boardSize: 5,
+      })
+
+      const observedSystems = new Map<string, string | undefined>()
+      const reader = await setup(defaultPlan, (options) => {
+        const sessionId = String(options.sessionId)
+        observedSystems.set(sessionId, extractSystemPrompt(options))
+        return moveScript(
+          sessionId,
+          options.messages.filter(message => message.role === 'assistant').length,
+          defaultPlan,
+        )
+      }, {
+        persistenceRoot,
+        presetRoot,
+        defaultPreset: 'compat',
+      })
+
+      const resumed = await reader.theater.resume({ performanceId })
+      expect(resumed.phase).toBe('active')
+      await reader.theater.whenIdle(performanceId)
+
+      const completed = reader.theater.read(performanceId)
+      expect(completed.phase).toBe('completed')
+      expect(completed.stages.board1).toMatchObject({
+        configuration: { config: { boardSize: 3, winLength: 3 } },
+        state: { winner: 'black', moveNumber: 5 },
+      })
+      // Persisted systemPrompt and tools (including black's read_board!) remained authoritative.
+      expect(observedSystems.get(String(characterSessionId(performanceId, 'black'))))
+        .toContain('Original authoritative black prompt.')
+      expect(observedSystems.get(String(characterSessionId(performanceId, 'white'))))
+        .toContain('Original authoritative white prompt.')
+      expect(reader.tools.schemas(reader.agents.get(characterSessionId(performanceId, 'black'))!).map(tool => tool.name))
+        .toEqual(['read_board', 'place_stone'])
+
+      // Forking also inherits the source's persisted configuration snapshot verbatim.
+      const forkedId = SessionId('performance-authoritative-fork')
+      await reader.theater.fork({
+        sourcePerformanceId: performanceId,
+        cursor: completed.forkablePositions[0]!,
+        childPerformanceId: forkedId,
+      })
+      await reader.theater.whenIdle(forkedId)
+      expect(observedSystems.get(String(characterSessionId(forkedId, 'black'))))
+        .toContain('Original authoritative black prompt.')
+      expect(reader.theater.read(forkedId).stages.board1?.configuration.config).toEqual({
+        boardSize: 3,
+        winLength: 3,
+      })
+      await reader.fiber.dispose()
+    } finally {
+      await rm(evolveRoot, { recursive: true, force: true })
+    }
+
+    // 2. Structural incompatibilities (roster change, Stage ID change) still fail into incompatible while preserving historical reads.
+    const incompatibleCases = [
       {
         name: 'roster',
-        current: { characters: [original.characters[0]!], boardSize: 3 },
-      },
-      {
-        name: 'Character Tool plan',
         current: {
-          characters: [
-            { ...original.characters[0]!, read: false },
-            original.characters[1]!,
-          ],
+          director: 'complete' as const,
+          characters: [original.characters[0]!],
           boardSize: 3,
         },
       },
       {
-        name: 'Character System Prompt',
+        name: 'Stage declaration set',
         current: {
-          characters: [
-            { ...original.characters[0]!, systemPrompt: 'You are changed black.' },
-            original.characters[1]!,
-          ],
+          director: 'complete' as const,
+          characters: original.characters,
           boardSize: 3,
+          stages: [
+            { id: 'board1', machine: 'gomoku', boardSize: 3 },
+            { id: 'board2', machine: 'gomoku', boardSize: 3 },
+          ],
         },
-      },
-      {
-        name: 'Stage config',
-        current: { characters: original.characters, boardSize: 4 },
-      },
-      {
-        name: 'auto advance',
-        current: { ...original, autoAdvance: false },
       },
     ] as const
 
-    for (const scenario of cases) {
+    for (const scenario of incompatibleCases) {
       const root = await mkdtemp(join(tmpdir(), 'dsh-theater-incompatible-'))
       const persistenceRoot = join(root, 'sessions')
       const presetRoot = join(root, 'presets')
       try {
-        await writeCompatibilityPresets(presetRoot, original)
+        await writeCompatibilityPresets(presetRoot, { ...original, director: 'complete' })
         const performanceId = SessionId(`performance-incompatible-${scenario.name}`)
         const writer = await setup(defaultPlan, undefined, {
           persistenceRoot,
@@ -619,6 +879,156 @@ describe('Performance Theater', () => {
       } finally {
         await rm(root, { recursive: true, force: true })
       }
+    }
+  })
+
+  it('runs Stage-free zero-tool Characters without mounting dsh-stage and exposes structured Turn reads and abortTurn to Tools (ADR-0009)', async () => {
+    const presetRoot = await mkdtemp(join(tmpdir(), 'dsh-theater-stagefree-'))
+    let ctx: Context | undefined
+    try {
+      await mkdir(join(presetRoot, 'stagefree'), { recursive: true })
+      await writeFile(join(presetRoot, 'stagefree', 'agent.cordis.yml'), [
+        '- id: performance',
+        "  name: '@darwintree/dsh-theater/preset'",
+        '  config:',
+        '    characters:',
+        '      narrator:',
+        '        systemPrompt: You speak without tools.',
+        '        tools: []',
+        '      inspector:',
+        '        systemPrompt: You inspect structured Turn reads.',
+        '        tools:',
+        '          - factory: inspect-turn',
+        '          - factory: abort-turn',
+        '- id: director',
+        `  name: ${JSON.stringify(join(FIXTURES, 'plugins', 'complete-director.js'))}`,
+        '',
+      ].join('\n'))
+
+      let capturedCurrent: ActiveCharacterTurnRead | undefined
+      let capturedSettled: readonly CharacterTurnRead[] | undefined
+
+      const inspectFactory: TheaterToolFactory = {
+        kind: 'inspect-turn',
+        resolveConfig: () => ({}),
+        create(_config, context) {
+          return defineTool({
+            name: 'inspect_turn',
+            description: 'Inspect structured current and settled Turn views.',
+            parameters: { note: { type: 'string', required: true } },
+            output: {
+              schema: { type: 'string' },
+              render: (_args, value) => [{ type: 'text', text: value }],
+            },
+            async execute() {
+              capturedCurrent = context.readCurrentTurn()
+              capturedSettled = context.readSettledTurns()
+              return 'inspected'
+            },
+          })
+        },
+      }
+      const abortFactory: TheaterToolFactory = {
+        kind: 'abort-turn',
+        resolveConfig: () => ({}),
+        create(_config, context) {
+          return defineTool({
+            name: 'abort_turn',
+            description: 'Abort the current Turn with a domain reason.',
+            parameters: { reason: { type: 'string', required: true } },
+            output: { schema: { type: 'null' }, render: () => [] },
+            async execute(args) {
+              return context.abortTurn(args.reason)
+            },
+          })
+        },
+      }
+
+      ctx = await setup(defaultPlan, (options) => {
+        const sessionId = String(options.sessionId)
+        const count = options.messages.filter(message => message.role === 'assistant').length
+        if (sessionId.endsWith('/characters/narrator')) {
+          return { content: [{ type: 'text', text: 'Opening narration.' }] }
+        }
+        if (sessionId.startsWith('stagefree-ok/') && sessionId.endsWith('/characters/inspector')) {
+          if (count === 0) {
+            return {
+              content: [
+                { type: 'text', text: 'Checking context.' },
+                { type: 'tool-call', id: 'inspect-1', name: 'inspect_turn', arguments: JSON.stringify({ note: 'hi' }) },
+              ],
+            }
+          }
+          return { content: [{ type: 'text', text: 'Done inspecting.' }] }
+        }
+        if (sessionId.startsWith('stagefree-abort/') && sessionId.endsWith('/characters/inspector')) {
+          return {
+            content: [
+              { type: 'tool-call', id: 'abort-1', name: 'abort_turn', arguments: JSON.stringify({ reason: 'fatal protocol abort' }) },
+            ],
+          }
+        }
+        throw new Error(`unexpected request for ${sessionId}`)
+      }, {
+        presetRoot,
+        defaultPreset: 'stagefree',
+        mountStage: false,
+      })
+
+      expect(ctx.get('stages' as never)).toBeUndefined()
+      ctx.theater.registerToolFactory(inspectFactory)
+      ctx.theater.registerToolFactory(abortFactory)
+
+      const okId = SessionId('stagefree-ok')
+      await ctx.theater.create({
+        performanceId: okId,
+        presetId: 'stagefree',
+        cwd: FIXTURES,
+        director: async (context) => {
+          const turns = context.readSettledTurns()
+          if (turns.length === 0) return { kind: 'act', characterId: 'narrator', instruction: [{ type: 'text', text: 'Speak.' }] }
+          if (turns.length === 1) return { kind: 'act', characterId: 'inspector', instruction: [{ type: 'text', text: 'Inspect.' }] }
+          return { kind: 'complete' }
+        },
+      })
+      await ctx.theater.whenIdle(okId)
+
+      expect(ctx.theater.read(okId)).toMatchObject({ phase: 'completed', stages: {} })
+      expect(ctx.tools.schemas(ctx.agents.get(characterSessionId(okId, 'narrator'))!)).toEqual([])
+      expect(capturedSettled).toHaveLength(1)
+      expect(capturedSettled![0]).toEqual({
+        characterId: 'narrator',
+        outcome: 'completed',
+        entries: [{ kind: 'text', text: 'Opening narration.' }],
+        toolCalls: [],
+      })
+      expect(capturedCurrent).toMatchObject({
+        characterId: 'inspector',
+        entries: [
+          { kind: 'text', text: 'Checking context.' },
+          { kind: 'tool-call', callId: 'inspect-1', name: 'inspect_turn', arguments: { note: 'hi' } },
+        ],
+      })
+
+      // Explicit abortTurn propagates its domain reason cleanly and halts the Performance.
+      const abortId = SessionId('stagefree-abort')
+      await ctx.theater.create({
+        performanceId: abortId,
+        presetId: 'stagefree',
+        cwd: FIXTURES,
+        director: async () => ({
+          kind: 'act',
+          characterId: 'inspector',
+          instruction: [{ type: 'text', text: 'Abort now.' }],
+        }),
+      })
+      await expect(ctx.theater.whenIdle(abortId)).rejects.toThrow('fatal protocol abort')
+      const aborted = ctx.theater.read(abortId)
+      expect(aborted).toMatchObject({ phase: 'failed', activity: 'idle', error: 'fatal protocol abort' })
+      expect(aborted.forkablePositions).toHaveLength(1)
+    } finally {
+      await ctx?.fiber.dispose()
+      await rm(presetRoot, { recursive: true, force: true })
     }
   })
 
@@ -683,5 +1093,120 @@ describe('Performance Theater', () => {
     })
     expect(ctx.sessions.get(firstId)?.snapshotEvents().filter(event => event.type === 'stage/op')).toHaveLength(5)
     expect(ctx.sessions.get(secondId)?.snapshotEvents().filter(event => event.type === 'stage/op')).toHaveLength(5)
+  })
+
+  it('distinguishes executing-turn activity and aborts an in-flight Turn into failed phase on stop() (ADR-0007, ADR-0008)', async () => {
+    const presetRoot = await mkdtemp(join(tmpdir(), 'dsh-theater-midturn-stop-'))
+    let ctx: Context | undefined
+    try {
+      await mkdir(join(presetRoot, 'midturn'), { recursive: true })
+      await writeFile(join(presetRoot, 'midturn', 'agent.cordis.yml'), [
+        '- id: performance',
+        "  name: '@darwintree/dsh-theater/preset'",
+        '  config:',
+        '    characters:',
+        '      worker:',
+        '        systemPrompt: You run a blocking tool.',
+        '        tools:',
+        '          - factory: slow-tool',
+        '- id: director',
+        `  name: ${JSON.stringify(join(FIXTURES, 'plugins', 'complete-director.js'))}`,
+        '',
+      ].join('\n'))
+
+      const toolEntered = Promise.withResolvers<void>()
+      let observedActivityDuringTool: string | undefined
+      const slowFactory: TheaterToolFactory = {
+        kind: 'slow-tool',
+        resolveConfig: () => ({}),
+        create() {
+          return defineTool({
+            name: 'slow_tool',
+            description: 'Wait until aborted.',
+            parameters: {},
+            output: { schema: { type: 'null' }, render: () => [] },
+            async execute(_args, exec) {
+              observedActivityDuringTool = ctx!.theater.read(SessionId('performance-midturn-stop')).activity
+              toolEntered.resolve()
+              await new Promise<void>((_, reject) => {
+                if (exec.signal.aborted) {
+                  reject(new Error('aborted'))
+                  return
+                }
+                exec.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+              })
+              return null
+            },
+          })
+        },
+      }
+
+      ctx = await setup(defaultPlan, () => ({
+        content: [{ type: 'tool-call', id: 'slow-1', name: 'slow_tool', arguments: '{}' }],
+      }), {
+        presetRoot,
+        defaultPreset: 'midturn',
+        mountStage: false,
+      })
+      ctx.theater.registerToolFactory(slowFactory)
+
+      const performanceId = SessionId('performance-midturn-stop')
+      await ctx.theater.create({
+        performanceId,
+        presetId: 'midturn',
+        cwd: FIXTURES,
+        director: async () => ({
+          kind: 'act',
+          characterId: 'worker',
+          instruction: [{ type: 'text', text: 'Run slow tool.' }],
+        }),
+      })
+      await toolEntered.promise
+      expect(observedActivityDuringTool).toBe('executing-turn')
+
+      const stopped = await ctx.theater.stop(performanceId)
+      expect(stopped).toMatchObject({ phase: 'failed', activity: 'idle' })
+      expect(stopped.forkablePositions).toHaveLength(1)
+    } finally {
+      await ctx?.fiber.dispose()
+      await rm(presetRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('marks resume incompatible when a required persisted ToolFactory is missing (ADR-0006)', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-theater-missing-tool-'))
+    const persistenceRoot = join(root, 'sessions')
+    try {
+      const performanceId = SessionId('performance-missing-tool-factory')
+      const writer = await setup(defaultPlan, undefined, { persistenceRoot })
+      const limiter = createTurnLimitDirector(1)
+      await writer.theater.create({
+        performanceId,
+        presetId: 'two-character-gomoku',
+        cwd: FIXTURES,
+        wrapDirector: base => limiter.wrap(base),
+      })
+      await limiter.whenReached()
+      await writer.theater.stop(performanceId)
+      await writer.fiber.dispose()
+
+      // Mount Theater and Stage, but omit GomokuTheater (which registers gomoku-read-board / gomoku-place-stone).
+      const reader = await createDshTestContext({
+        baseDir: FIXTURES,
+        persistenceRoot,
+        presets: {
+          default: 'two-character-gomoku',
+          dirs: [join(FIXTURES, 'presets')],
+        },
+      })
+      await reader.plugin(Gomoku)
+      const resumed = await reader.theater.resume({ performanceId })
+      expect(resumed.phase).toBe('incompatible')
+      expect(resumed.error).toContain('missing "gomoku-read-board"')
+      expect(resumed.stages.board1?.state).toMatchObject({ moveNumber: 1 })
+      await reader.fiber.dispose()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })

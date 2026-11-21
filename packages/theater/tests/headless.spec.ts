@@ -138,4 +138,10 @@ describe('Theater headless runner', () => {
     expect(await exited.promise).toBe(0)
     expect(runtimeCtx.theater.read(SessionId('headless-via-apply')).stages.board1?.state).toMatchObject({ moveNumber: 1 })
   })
+
+  it('ships a generic headless patch without hardcoding a scenario preset default', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const patchContent = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'headless.cordis.patch.yml'), 'utf8')
+    expect(patchContent).not.toContain('default: two-character-gomoku')
+  })
 })

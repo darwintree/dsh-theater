@@ -49,6 +49,11 @@
     "@darwintree/dsh-stage": "*",
     "@deepseek-ai/dsh-util-values": "*"
   },
+  "peerDependenciesMeta": {
+    "@darwintree/dsh-stage": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@darwintree/dsh-llm-mock": "workspace:*",
     "@darwintree/dsh-stage": "workspace:*",

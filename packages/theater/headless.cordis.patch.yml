@@ -11,7 +11,8 @@
     - id: agent-preset-registry
       name: '@deepseek-ai/dsh-agent-preset-registry'
       config:
-        default: two-character-gomoku
+        # Placeholder required by dsh-agent-preset-registry; Theater headless always selects via --preset.
+        default: default
 
     - id: theater-headless-runner
       name: '@darwintree/dsh-theater/headless'
