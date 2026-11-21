@@ -25,7 +25,11 @@ A Performance is a special DSH Session that is not driven by an Agent Loop. `Per
 _Avoid_: Shared transcript, Agent Session
 
 **Performance Preset**:
-A DSH Preset that assembles a Performance by declaring its Characters, Director, and zero or more Stages.
+A DSH Preset that defines a Performance's Characters, zero or more Stages, and default Director.
+
+**Performance Configuration**:
+The durable snapshot of a Performance's Characters, Tool configurations, and declared Stages captured at creation. It remains authoritative across resume and fork; runtime advancement pacing and the plugged-in Director are excluded.
+_Avoid_: Preset equality check, live config override
 
 **Stage-free Performance**:
 A Performance whose durable Character Turns and Performance ordering contain all facts needed for its Director decisions. It declares no Stage.
@@ -39,11 +43,11 @@ The Session of a Character. It stores that Character's Agent history, is created
 _Avoid_: Performance Session, Shared transcript
 
 **Character Turn**:
-One ordinary DSH Agent Turn executed by a Character and managed by Theater. A top-level Character Turn is triggered by a Director `act` Decision and settles at the next Director Point; a Nested Character Turn is triggered within another Character Turn and returns control to it.
+One ordinary DSH Agent Turn executed by a Character and managed by Theater. A top-level Character Turn is triggered by a Director `act` Decision and, when `completed`, settles at the next Director Point; a Nested Character Turn is triggered within another Character Turn and returns control to it.
 _Avoid_: Character Session, Director invocation
 
 **Nested Character Turn**:
-A Character Turn triggered by a Tool while another Character Turn remains open. It is durably nested in the Performance, returns its result to the calling Tool, and does not create a Director Point.
+A Character Turn triggered by a Tool while another Character Turn remains open. It is durably nested in the Performance for history and outer fork boundaries, returns its result to the calling Tool, creates no Director Point, and cannot be resumed mid-flight after a crash.
 _Avoid_: Director action, hidden model call
 
 **Top-level DM Turn**:
@@ -59,24 +63,20 @@ The DM's selection of the next ordinary Character together with a reason exposed
 _Avoid_: User override, Character Instruction
 
 **Theater Main Loop**:
-The Theater-owned control loop attached to a Performance. At each Director Point it requests one Director Decision and executes it by starting a Character Turn or completing the Performance. It owns execution and serial settlement, but not the domain judgment of which Character acts next or when the Performance completes.
+The Theater-owned control loop attached to a Performance. At each Director Point it awaits one cancellable Director Decision, executes an `act` Turn or completes the Performance, and halts on any non-completed top-level Turn; it owns execution, serial settlement, and failure halting, not advancement pacing or scheduling policy.
 _Avoid_: Theater Driver, Agent Loop, Director
 
-**Automatic Advancement**:
-Allows the Theater Main Loop to execute `act` Decisions automatically at each Director Point without an external call to `advance()`. It never prevents the Director from returning `complete`.
-_Avoid_: Director Decision, round limit
-
 **Director**:
-The liveness decision component for a Performance. The Theater Main Loop calls it at each Director Point, and it uses the currently readable state to decide whether one Character acts with an Instruction or the Performance completes. It neither executes Characters, owns the Main Loop, nor persists orchestration boundaries; it only decides whether work remains and what that work is.
-_Avoid_: Theater Main Loop, Agent Loop, Character
+The pluggable liveness and advancement component for a Performance, replaceable across create, resume, and fork (such as automatic, step-gated, or human-driven implementations). Awaited once per Director Point with cancellation support, it decides whether one Character acts with an Instruction or the Performance completes, owning advancement pacing without executing Characters or persisting orchestration boundaries.
+_Avoid_: Theater Main Loop, Agent Loop, Character, Theater-owned autoAdvance
 
 **Director Decision**:
 A one-time decision returned by the Director at a Director Point. It is either `act`, naming one Character and its Instruction, or `complete`, completing the Performance. The decision is not persisted; a fork computes a fresh decision in the new Performance.
 _Avoid_: Stage result, Character turn
 
 **Director Point**:
-A settled position in a Performance where no Character Turn is executing. The Theater Main Loop may call the Director there, and a Performance may be forked only there. It is a semantic position rather than an event: the initial Director Point exists after Performance creation settles, and each settled Character Turn produces the next Director Point.
-_Avoid_: Character turn, arbitrary event boundary
+A settled position in a Performance where no Character Turn is executing and the Performance can safely request a Director Decision, resume, or fork. The initial Director Point exists after Performance creation settles, and only a `completed` top-level Character Turn produces the next Director Point; an active Performance awaiting a Director Decision remains at its current Director Point.
+_Avoid_: Character turn, arbitrary event boundary, failed Turn boundary
 
 **Instruction**:
 The input to one Character Turn. It enters only the Character Session.
@@ -91,5 +91,5 @@ A destination-specific natural-language view of the semantic content produced by
 _Avoid_: Character Turn copy, Instruction replay
 
 **Settled Character Turn Read**:
-One Character's identity, settlement outcome, and exact Character Session Event slice for a settled Segment. It is reconstructed from durable Performance and Character Session records and is not separately persisted. Directors read only top-level Turns in Performance order; a nested-Turn caller receives the same read shape directly. Role-play owns the projection from this generic read model into Character Instructions.
-_Avoid_: Role-play Transcript, scheduling cache
+A structured, read-only view of one Character Turn's identity, settlement outcome, and semantic content reconstructed from durable Performance and Character Session records without separate persistence. Directors and Tools share this boundary for settled top-level Turns (plus the active Turn for Tools), avoiding direct access to raw Session events; Role-play owns the projection into Character Instructions.
+_Avoid_: Role-play Transcript, scheduling cache, raw Session event scraping
