@@ -1,6 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import Include, { type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
@@ -21,31 +21,16 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import StageService from '@darwintree/dsh-stage'
 import TheaterService from '@darwintree/dsh-theater'
 import { parse as parseYaml } from 'yaml'
+import { buildWorkspaceSourceLoaders, REPO_ROOT } from './workspace-packages.ts'
 
-export const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+export { REPO_ROOT }
 
 /**
  * Map workspace package specifiers directly to Vitest-transformed `src/*.ts`
  * modules so Cordis Loader and AgentPresetRegistry share the exact same live
  * source singletons as direct TypeScript imports — even when `dist/` does not exist.
  */
-const WORKSPACE_SOURCE_LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
-  '@darwintree/dsh-llm-mock': () => import('@darwintree/dsh-llm-mock'),
-  '@darwintree/dsh-stage': () => import('@darwintree/dsh-stage'),
-  '@darwintree/dsh-stage/preset': () => import('@darwintree/dsh-stage/preset'),
-  '@darwintree/dsh-theater': () => import('@darwintree/dsh-theater'),
-  '@darwintree/dsh-theater/preset': () => import('@darwintree/dsh-theater/preset'),
-  '@darwintree/dsh-theater/headless': () => import('@darwintree/dsh-theater/headless'),
-  '@darwintree/dsh-theater-gomoku': () => import('@darwintree/dsh-theater-gomoku'),
-  '@darwintree/dsh-theater-gomoku/single-agent': () => import('@darwintree/dsh-theater-gomoku/single-agent'),
-  '@darwintree/dsh-theater-gomoku/director': () => import('@darwintree/dsh-theater-gomoku/director'),
-  '@darwintree/dsh-theater-gomoku/theater': () => import('@darwintree/dsh-theater-gomoku/theater'),
-  '@darwintree/dsh-theater-role-play': () => import('@darwintree/dsh-theater-role-play'),
-  '@darwintree/dsh-theater-role-play/director': () => import('@darwintree/dsh-theater-role-play/director'),
-  '@darwintree/dsh-theater-role-play/v3': () => import('@darwintree/dsh-theater-role-play/v3'),
-  '@darwintree/dsh-theater-example-three-board-gomoku': () => import('@darwintree/dsh-theater-example-three-board-gomoku'),
-  '@darwintree/dsh-theater-example-three-board-gomoku/director': () => import('@darwintree/dsh-theater-example-three-board-gomoku/director'),
-}
+const WORKSPACE_SOURCE_LOADERS = buildWorkspaceSourceLoaders()
 
 /**
  * Intercept `@darwintree/*` module loads on Cordis `Loader` so presets and

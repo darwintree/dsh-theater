@@ -3,15 +3,9 @@ import { readdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { REPO_ROOT } from './harness.ts'
+import { discoverWorkspacePackages } from './workspace-packages.ts'
 
-const WORKSPACE_PACKAGES = [
-  'packages/llm-mock',
-  'packages/stage',
-  'packages/theater',
-  'packages/theater-gomoku',
-  'packages/theater-role-play',
-  'example/three-board-gomoku',
-] as const
+const WORKSPACE_PACKAGES = discoverWorkspacePackages().map(pkg => pkg.relativeDir)
 
 const hasBuiltDist = WORKSPACE_PACKAGES.every(pkg => existsSync(join(REPO_ROOT, pkg, 'dist', 'index.js')))
 

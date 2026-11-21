@@ -3,13 +3,13 @@
   config:
     stages:
       board1:
-        machine: gomoku
+        machine: test-game
 - id: performance
   name: '@darwintree/dsh-theater/preset'
   config:
     characters:
       black:
-        systemPrompt: You are the black Gomoku test Character.
+        systemPrompt: You are the black test Character.
         tools:
-          - factory: gomoku-place-stone
+          - factory: test-place-stone
             params: { stage: board1, color: black }

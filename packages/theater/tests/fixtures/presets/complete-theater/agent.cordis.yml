@@ -3,16 +3,16 @@
   config:
     stages:
       board1:
-        machine: gomoku
-        params: { boardSize: 3, winLength: 3 }
+        machine: test-game
+        params: { boardSize: 3, target: 5 }
 - id: performance
   name: '@darwintree/dsh-theater/preset'
   config:
     characters:
       black:
-        systemPrompt: You are the black Gomoku test Character.
+        systemPrompt: You are the black test Character.
         tools:
-          - factory: gomoku-place-stone
+          - factory: test-place-stone
             params: { stage: board1, color: black }
 - id: director
   name: '../../plugins/complete-director.js'

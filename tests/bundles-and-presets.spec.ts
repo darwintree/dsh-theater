@@ -8,33 +8,23 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { installWorkspaceSourceLoader, REPO_ROOT } from './harness.ts'
+import { discoverWorkspacePackages } from './workspace-packages.ts'
 
-const MOUNTABLE_PACKAGES = [
-  { dir: 'packages/stage', name: '@darwintree/dsh-stage', presetPatches: [] },
-  { dir: 'packages/theater', name: '@darwintree/dsh-theater', presetPatches: [] },
-  {
-    dir: 'packages/theater-gomoku',
-    name: '@darwintree/dsh-theater-gomoku',
-    presetPatches: ['./presets/gomoku.patch.yml', './presets/two-character-gomoku.patch.yml'],
-  },
-  {
-    dir: 'packages/theater-role-play',
-    name: '@darwintree/dsh-theater-role-play',
-    presetPatches: ['./presets/role-play-v3.patch.yml'],
-  },
-  {
-    dir: 'example/three-board-gomoku',
-    name: '@darwintree/dsh-theater-example-three-board-gomoku',
-    presetPatches: ['./presets/three-board-gomoku.patch.yml'],
-  },
-] as const
+const MOUNTABLE_PACKAGES = discoverWorkspacePackages()
+  .filter(pkg => pkg.hasBundlePatch)
+  .map(pkg => ({
+    dir: pkg.relativeDir,
+    name: pkg.name,
+    presetPatches: pkg.presetPatches,
+  }))
 
-const SHIPPED_PRESETS = [
-  { id: 'gomoku', patchFile: 'packages/theater-gomoku/presets/gomoku.patch.yml' },
-  { id: 'two-character-gomoku', patchFile: 'packages/theater-gomoku/presets/two-character-gomoku.patch.yml' },
-  { id: 'three-board-gomoku', patchFile: 'example/three-board-gomoku/presets/three-board-gomoku.patch.yml' },
-  { id: 'role-play-v3', patchFile: 'packages/theater-role-play/presets/role-play-v3.patch.yml' },
-] as const
+const SHIPPED_PRESETS = MOUNTABLE_PACKAGES.flatMap(pkg =>
+  pkg.presetPatches.map((patch) => {
+    const file = patch.replace(/^\.\//, '')
+    const id = file.slice('presets/'.length, -'.patch.yml'.length)
+    return { id, patchFile: `${pkg.dir}/${file}` }
+  }),
+)
 
 let tempDirs: string[] = []
 let ctx: Context | undefined

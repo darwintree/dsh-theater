@@ -4,10 +4,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MockLlmAdapter } from '@darwintree/dsh-llm-mock'
-import * as Gomoku from '@darwintree/dsh-theater-gomoku'
-import * as GomokuTheater from '@darwintree/dsh-theater-gomoku/theater'
 import { apply as applyHeadless, parseHeadlessOptions, runHeadless } from '@darwintree/dsh-theater/headless'
 import { createDshTestContext } from '../../../tests/harness.ts'
+import { TestGameStagePlugin, TestGameTheaterPlugin } from './fixtures/plugins/test-game.ts'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 
@@ -27,7 +26,7 @@ async function setupHeadlessContext(): Promise<Context> {
       dirs: [join(FIXTURES, 'presets')],
     },
   })
-  await local.plugin(Gomoku)
+  await local.plugin(TestGameStagePlugin)
   local.llm.registerAdapter(['mock'], new MockLlmAdapter((options) => {
     const sessionId = String(options.sessionId)
     const count = options.messages.filter(message => message.role === 'assistant').length
@@ -49,7 +48,7 @@ async function setupHeadlessContext(): Promise<Context> {
       ? { content: [{ type: 'tool-call', id: `${sessionId}-read-${count}`, name: 'read_board', arguments: '{}' }] }
       : { content: [{ type: 'tool-call', id: `${sessionId}-move-${count}`, name: 'place_stone', arguments: JSON.stringify({ x: move[0], y: move[1] }) }] }
   }))
-  await local.plugin(GomokuTheater)
+  await local.plugin(TestGameTheaterPlugin)
   ctx = local
   return local
 }

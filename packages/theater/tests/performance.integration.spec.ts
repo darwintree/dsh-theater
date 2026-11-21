@@ -8,8 +8,6 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
 import { MockLlmAdapter, type Behaviour, type MockResponse } from '@darwintree/dsh-llm-mock'
-import * as Gomoku from '@darwintree/dsh-theater-gomoku'
-import * as GomokuTheater from '@darwintree/dsh-theater-gomoku/theater'
 import {
   characterSessionId,
   createHumanDirector,
@@ -20,6 +18,7 @@ import {
   type TheaterToolFactory,
 } from '@darwintree/dsh-theater'
 import { createDshTestContext, extractSystemPrompt } from '../../../tests/harness.ts'
+import { TestGameStagePlugin, TestGameTheaterPlugin } from './fixtures/plugins/test-game.ts'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 
@@ -89,7 +88,7 @@ async function setup(
     mountStage,
   })
   if (mountStage) {
-    await ctx.plugin(Gomoku)
+    await ctx.plugin(TestGameStagePlugin)
   }
   ctx.llm.registerAdapter(['mock'], new MockLlmAdapter(behaviour ?? (options =>
     moveScript(
@@ -98,7 +97,7 @@ async function setup(
       plan,
     ))))
   if (options.mountTheater !== false) {
-    await ctx.plugin(GomokuTheater)
+    await ctx.plugin(TestGameTheaterPlugin)
   }
   return ctx
 }
@@ -106,7 +105,7 @@ async function setup(
 async function writeCompatibilityPresets(
   root: string,
   config: {
-    director?: 'complete' | 'gomoku'
+    director?: 'complete' | 'game'
     characters: readonly {
       id: string
       systemPrompt: string
@@ -117,25 +116,25 @@ async function writeCompatibilityPresets(
     stages?: readonly { id: string; machine: string; boardSize: number }[]
   },
 ): Promise<void> {
-  const director = config.director === 'gomoku'
-    ? '@darwintree/dsh-theater-gomoku/director'
+  const director = config.director === 'game'
+    ? join(FIXTURES, 'plugins', 'test-game-director.js')
     : join(FIXTURES, 'plugins', 'complete-director.js')
   const rows = config.characters.flatMap(character => [
     `      ${character.id}:`,
     `        systemPrompt: ${JSON.stringify(character.systemPrompt)}`,
     '        tools:',
     ...character.read ? [
-      '          - factory: gomoku-read-board',
+      '          - factory: test-read-board',
       '            params: { stage: board1 }',
     ] : [],
-    '          - factory: gomoku-place-stone',
+    '          - factory: test-place-stone',
     `            params: { stage: board1, color: ${character.color} }`,
   ]).join('\n')
-  const stageRows = (config.stages ?? [{ id: 'board1', machine: 'gomoku', boardSize: config.boardSize }])
+  const stageRows = (config.stages ?? [{ id: 'board1', machine: 'test-game', boardSize: config.boardSize }])
     .flatMap(stage => [
       `      ${stage.id}:`,
       `        machine: ${stage.machine}`,
-      `        params: { boardSize: ${stage.boardSize}, winLength: 3 }`,
+      `        params: { boardSize: ${stage.boardSize}, target: 5 }`,
     ]).join('\n')
   await mkdir(join(root, 'compat'), { recursive: true })
   await writeFile(join(root, 'compat', 'agent.cordis.yml'), [
@@ -151,7 +150,7 @@ async function writeCompatibilityPresets(
     rows,
     '- id: director',
     `  name: ${JSON.stringify(director)}`,
-    ...config.director === 'gomoku' ? [
+    ...config.director === 'game' ? [
       '  config:',
       '    stage: board1',
       '    instruction: Make exactly one legal generated-preset move.',
@@ -220,8 +219,8 @@ describe('Performance Theater', () => {
       data: {
         presetId: 'two-character-gomoku',
         characters: [
-          { id: 'black', systemPrompt: 'You are the black Gomoku test Character.' },
-          { id: 'white', systemPrompt: 'You are the white Gomoku test Character.' },
+          { id: 'black', systemPrompt: 'You are the black test Character.' },
+          { id: 'white', systemPrompt: 'You are the white test Character.' },
         ],
       },
     })
@@ -264,7 +263,7 @@ describe('Performance Theater', () => {
       ])
       expect(characterSession.header.cwd).toBe(FIXTURES)
       expect(characterSession.header.agentPreset).toBeUndefined()
-      expect(systems.get(String(characterSession.id))).toContain(`You are the ${character} Gomoku test Character.`)
+      expect(systems.get(String(characterSession.id))).toContain(`You are the ${character} test Character.`)
       expect(systems.get(String(characterSession.id))).not.toContain('Host default persona.')
       expect(characterSession.snapshotEvents().some(event => event.type === 'agent-preset/selected')).toBe(false)
       expect(characterSession.snapshotEvents().some(event => event.type === 'user/message')).toBe(true)
@@ -726,7 +725,7 @@ describe('Performance Theater', () => {
 
   it('treats persisted configuration as authoritative on resume/fork while rejecting structural incompatibility (ADR-0006)', async () => {
     const original = {
-      director: 'gomoku' as const,
+      director: 'game' as const,
       characters: [
         { id: 'black', systemPrompt: 'Original authoritative black prompt.', color: 'black' as const, read: true },
         { id: 'white', systemPrompt: 'Original authoritative white prompt.', color: 'white' as const, read: false },
@@ -759,7 +758,7 @@ describe('Performance Theater', () => {
 
       // Edit preset systemPrompt, remove read_board from black's tools, and change boardSize from 3 to 5.
       await writeCompatibilityPresets(presetRoot, {
-        director: 'gomoku',
+        director: 'game',
         characters: [
           { id: 'black', systemPrompt: 'Mutated black prompt that must NOT overwrite persisted snapshot.', color: 'black', read: false },
           { id: 'white', systemPrompt: 'Mutated white prompt that must NOT overwrite persisted snapshot.', color: 'white', read: false },
@@ -789,7 +788,7 @@ describe('Performance Theater', () => {
       const completed = reader.theater.read(performanceId)
       expect(completed.phase).toBe('completed')
       expect(completed.stages.board1).toMatchObject({
-        configuration: { config: { boardSize: 3, winLength: 3 } },
+        configuration: { config: { boardSize: 3, target: 5 } },
         state: { winner: 'black', moveNumber: 5 },
       })
       // Persisted systemPrompt and tools (including black's read_board!) remained authoritative.
@@ -812,7 +811,7 @@ describe('Performance Theater', () => {
         .toContain('Original authoritative black prompt.')
       expect(reader.theater.read(forkedId).stages.board1?.configuration.config).toEqual({
         boardSize: 3,
-        winLength: 3,
+        target: 5,
       })
       await reader.fiber.dispose()
     } finally {
@@ -836,8 +835,8 @@ describe('Performance Theater', () => {
           characters: original.characters,
           boardSize: 3,
           stages: [
-            { id: 'board1', machine: 'gomoku', boardSize: 3 },
-            { id: 'board2', machine: 'gomoku', boardSize: 3 },
+            { id: 'board1', machine: 'test-game', boardSize: 3 },
+            { id: 'board2', machine: 'test-game', boardSize: 3 },
           ],
         },
       },
@@ -1190,7 +1189,7 @@ describe('Performance Theater', () => {
       await writer.theater.stop(performanceId)
       await writer.fiber.dispose()
 
-      // Mount Theater and Stage, but omit GomokuTheater (which registers gomoku-read-board / gomoku-place-stone).
+      // Mount Theater and Stage, but omit TestGameTheaterPlugin (which registers test-read-board / test-place-stone).
       const reader = await createDshTestContext({
         baseDir: FIXTURES,
         persistenceRoot,
@@ -1199,10 +1198,10 @@ describe('Performance Theater', () => {
           dirs: [join(FIXTURES, 'presets')],
         },
       })
-      await reader.plugin(Gomoku)
+      await reader.plugin(TestGameStagePlugin)
       const resumed = await reader.theater.resume({ performanceId })
       expect(resumed.phase).toBe('incompatible')
-      expect(resumed.error).toContain('missing "gomoku-read-board"')
+      expect(resumed.error).toContain('missing "test-read-board"')
       expect(resumed.stages.board1?.state).toMatchObject({ moveNumber: 1 })
       await reader.fiber.dispose()
     } finally {
