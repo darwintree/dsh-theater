@@ -315,4 +315,13 @@ describe('Stage Service', () => {
     const op = session.snapshotEvents().filter(e => e.type === 'stage/op')[0]
     expect(op?.data).toMatchObject({ stageId: 'o', op: { kind: 'add', amount: 1 }, outcome: { value: 1 } })
   })
+
+  it('looks up registered State Machine factories by kind until disposed', async () => {
+    const ctx = await setup()
+    expect(ctx.stages.getFactory(counterFactory.kind)).toBeUndefined()
+    const dispose = ctx.stages.registerFactory(counterFactory)
+    expect(ctx.stages.getFactory(counterFactory.kind)).toBe(counterFactory)
+    dispose()
+    expect(ctx.stages.getFactory(counterFactory.kind)).toBeUndefined()
+  })
 });

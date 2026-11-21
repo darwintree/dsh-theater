@@ -88,6 +88,11 @@ export class StageService extends Service {
     return this.catalog.registerFactory(this.ctx, factory)
   }
 
+  /** Look up one registered State Machine factory by kind. */
+  getFactory(kind: string): StateMachineFactory | undefined {
+    return this.catalog.getFactory(kind)
+  }
+
   /** Resolve and register a preset's Stage declarations in its standing scope. */
   declare(declarations: StageDeclarations): () => void {
     return this.catalog.declare(this.ctx, declarations)

@@ -72,6 +72,10 @@ export class StageCatalog {
     }, `stages.registerFactory(${kind})`)
   }
 
+  getFactory(kind: string): StateMachineFactory | undefined {
+    return this.factories.get(kind)
+  }
+
   declare(ctx: Context, declarations: StageDeclarations): () => void {
     if (scopeOf(ctx) === undefined) {
       throw new Error('stages.declare() requires an Agent Preset standing scope')
