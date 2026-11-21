@@ -29,6 +29,7 @@
   },
   "files": [
     "dist",
+    "!dist/.tsbuildinfo",
     "presets",
     "cordis.patch.yml",
     "README.md"
@@ -43,32 +44,30 @@
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "*",
-    "@deepseek-ai/dsh-llm": "*",
-    "@deepseek-ai/dsh-session": "*",
-    "@deepseek-ai/dsh-tools": "*",
     "@darwintree/dsh-stage": "*",
     "@darwintree/dsh-theater": "*",
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-tools": "*",
     "@deepseek-ai/dsh-util-values": "*"
+  },
+  "peerDependenciesMeta": {
+    "@darwintree/dsh-theater": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@darwintree/dsh-llm-mock": "workspace:*",
     "@darwintree/dsh-stage": "workspace:*",
     "@darwintree/dsh-theater": "workspace:*",
-    "@deepseek-ai/cordis": "4.1.0",
-    "@deepseek-ai/cordis-plugin-include": "1.1.0",
-    "@deepseek-ai/cordis-plugin-loader": "1.1.0",
-    "@deepseek-ai/dsh-agent": "0.2.2-rc.5",
-    "@deepseek-ai/dsh-agent-loop": "0.2.2-rc.5",
-    "@deepseek-ai/dsh-agent-preset": "0.2.2-rc.5",
-    "@deepseek-ai/dsh-agent-preset-registry": "0.2.2-rc.5",
-    "@deepseek-ai/dsh-llm": "0.2.2-rc.5",
-    "@deepseek-ai/dsh-session": "0.2.2-rc.5",
-    "@deepseek-ai/dsh-persona": "0.2.2-rc.5",
-    "@deepseek-ai/dsh-system-prompt": "0.2.2-rc.5",
-    "@deepseek-ai/dsh-tool-executor-native": "0.2.2-rc.5",
-    "@deepseek-ai/dsh-tools": "0.2.2-rc.5",
-    "@deepseek-ai/dsh-util-values": "0.2.2-rc.5",
-    "@deepseek-ai/dsh-session-projection": "0.2.2-rc.5"
+    "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/dsh-agent": "catalog:",
+    "@deepseek-ai/dsh-agent-loop": "catalog:",
+    "@deepseek-ai/dsh-llm": "catalog:",
+    "@deepseek-ai/dsh-session": "catalog:",
+    "@deepseek-ai/dsh-session-projection": "catalog:",
+    "@deepseek-ai/dsh-system-prompt": "catalog:",
+    "@deepseek-ai/dsh-tool-executor-native": "catalog:",
+    "@deepseek-ai/dsh-tools": "catalog:",
+    "@deepseek-ai/dsh-util-values": "catalog:"
   }
 }

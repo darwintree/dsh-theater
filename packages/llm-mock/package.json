@@ -1,6 +1,6 @@
 {
   "name": "@darwintree/dsh-llm-mock",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -10,13 +10,12 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
-    "dist/index.js",
-    "dist/index.js.map",
-    "dist/index.d.ts",
-    "dist/index.d.ts.map",
+    "dist",
+    "!dist/.tsbuildinfo",
     "README.md"
   ],
   "peerDependencies": {
@@ -25,8 +24,8 @@
     "@deepseek-ai/schemastery": "*"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "4.1.0",
-    "@deepseek-ai/dsh-llm": "0.2.2-rc.5",
-    "@deepseek-ai/schemastery": "3.19.0"
+    "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/dsh-llm": "catalog:",
+    "@deepseek-ai/schemastery": "catalog:"
   }
 }

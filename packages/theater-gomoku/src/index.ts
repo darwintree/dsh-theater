@@ -1,5 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
-import StageService from '@darwintree/dsh-stage'
+import type {} from '@darwintree/dsh-stage'
 import { gomokuFactory } from './machine.js'
 
 export const name = '@darwintree/dsh-theater-gomoku'
@@ -9,7 +9,6 @@ export function apply(ctx: Context): void {
   ctx.stages.registerFactory(gomokuFactory)
 }
 
-export { StageService }
 export { gomokuFactory, GomokuMachine } from './machine.js'
 export {
   createInitialGomokuState,
