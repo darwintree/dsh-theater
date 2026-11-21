@@ -1,10 +1,12 @@
 import { apply } from '../dist/preset.js'
 
-const characterId = process.argv[2] ?? 'dm'
+const rawArgs = process.argv.slice(2)
+const characterId = (rawArgs[0] === '--' ? rawArgs[1] : rawArgs[0]) ?? 'dm'
 const systemPrompts = new Map()
 
 apply({
   theater: {
+    registerTitle() {},
     registerAutoAdvance() {},
     registerCharacter(character) {
       systemPrompts.set(character.id, character.systemPrompt)

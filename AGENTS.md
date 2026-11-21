@@ -1,8 +1,8 @@
 ## Agent skills
 
-### Migration context
+### Repository context
 
-This repository is the rewrite target for the ongoing `agents-chat` to DSH migration. The completed demo lives in the sibling `dsh-theater` checkout; `dsh-theater-new` is a separate branch of the same repository and should use that demo as its reference implementation.
+This repository is the DSH-native Stage and multi-character Performance Theater monorepo for DeepSeek Harness (`packages/stage`, `packages/theater`, scenario packages, and examples).
 
 ### Issue tracker
 
