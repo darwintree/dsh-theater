@@ -131,7 +131,6 @@ export function apply(ctx: Context): void {
     })
     .join('\n\n')
   ctx.theater.registerTitle(preset.title)
-  ctx.theater.registerAutoAdvance(true)
   ctx.theater.registerCharacter({
     id: 'dm',
     title: `${preset.title} · DM`,

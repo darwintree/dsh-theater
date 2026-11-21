@@ -36,11 +36,6 @@ function emptyConfig(input: unknown): JsonValue {
   return {}
 }
 
-function requireAgent(exec: ToolRunContext): NonNullable<ToolRunContext['agent']> {
-  if (exec.agent === undefined) throw new Error('Role-play Tool requires a calling Agent')
-  return exec.agent
-}
-
 function requireDm(context: TheaterToolContext, kind: 'top-level' | 'nested'): void {
   if (context.characterId !== 'dm' || context.currentTurnKind() !== kind) {
     throw new Error(`This Tool is available to dm during a ${kind} Turn`)
@@ -82,35 +77,37 @@ function validateVoiceOverSegments(value: unknown, context: TheaterToolContext):
   }
 }
 
-function currentTurnStart(events: readonly { readonly type: string }[]): number {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    if (events[index]?.type === 'turn/start') return index
+function hasVoiceOverSinceTerminal(context: TheaterToolContext): boolean {
+  const calls = [
+    ...context.readSettledTurns()
+      .filter(turn => turn.characterId === 'dm')
+      .flatMap(turn => successfulToolCalls(turn.toolCalls)),
+    ...successfulToolCalls(context.readCurrentTurn().toolCalls),
+  ]
+  let lastTerminalIndex = -1
+  for (let index = calls.length - 1; index >= 0; index -= 1) {
+    if (TERMINAL_TOOLS.includes(calls[index]!.name)) {
+      lastTerminalIndex = index
+      break
+    }
   }
-  return 0
-}
-
-function hasVoiceOverSinceTerminal(exec: ToolRunContext): boolean {
-  const events = requireAgent(exec).session.snapshotEvents()
-  const calls = successfulToolCalls(events)
-  const lastTerminal = calls.filter(call => TERMINAL_TOOLS.includes(call.name)).at(-1)
-  return calls.some(call => call.name === VOICE_OVER && call.resultSeq > (lastTerminal?.resultSeq ?? -1))
+  return calls.slice(lastTerminalIndex + 1).some(call => call.name === VOICE_OVER)
 }
 
 function requireFirstCurrentCall(
+  context: TheaterToolContext,
   exec: ToolRunContext,
   names: readonly string[],
   message = `当前 Turn 只接受一次 ${names.join(' 或 ')}`,
 ): void {
-  const events = requireAgent(exec).session.snapshotEvents()
-  const calls = events.slice(currentTurnStart(events)).filter(event =>
-    event.type === 'tool/call' && names.includes(event.data.name))
-  if (calls.findIndex(event => event.type === 'tool/call' && event.data.callId === exec.callId) > 0) {
+  const calls = context.readCurrentTurn().toolCalls.filter(call => names.includes(call.name))
+  if (calls.findIndex(call => call.callId === String(exec.callId)) > 0) {
     throw new Error(message)
   }
 }
 
 function perceptionResult(turn: CharacterTurnRead): string | undefined {
-  const results = successfulToolCalls(turn.events, PERCEPTION_RESULT)
+  const results = successfulToolCalls(turn.toolCalls, PERCEPTION_RESULT)
   return results.length === 1 && typeof results[0]?.arguments.content === 'string'
     ? results[0].arguments.content
     : undefined
@@ -176,29 +173,21 @@ export const perceiveOrRecallToolFactory: TheaterToolFactory = {
       async execute(args, exec) {
         exact(args, ['content'], PERCEIVE_OR_RECALL)
         requireOrdinaryTopLevel(context)
-        const agent = requireAgent(exec)
-        const sessionEvents = agent.session.snapshotEvents()
-        const start = currentTurnStart(sessionEvents)
         requireFirstCurrentCall(
+          context,
           exec,
           [PERCEIVE_OR_RECALL],
           '当前 Character Turn 已经使用过 perceive_or_recall',
         )
 
-        const prefix: CharacterTurnRead = {
-          characterId: context.characterId,
-          outcome: 'completed',
-          events: sessionEvents.slice(start),
-        }
-        let instruction = projectCharacterTurn(prefix)
+        let instruction = projectCharacterTurn(context.readCurrentTurn())
         for (let attempt = 1; attempt <= 3; attempt += 1) {
           const turn = await context.runNestedTurn('dm', [{ type: 'text', text: instruction }])
           const content = perceptionResult(turn)
           if (content !== undefined) return { content }
           instruction = '上一轮感知/回忆裁定未完成：缺少一次成功的 perception_result。'
         }
-        agent.cancel({ kind: 'parent' })
-        throw new Error('DM 连续三轮未完成感知/回忆裁定')
+        return context.abortTurn('DM 连续三轮未完成感知/回忆裁定')
       },
     })
   },
@@ -216,7 +205,7 @@ export const perceptionResultToolFactory: TheaterToolFactory = {
       async execute(args, exec) {
         exact(args, ['content'], PERCEPTION_RESULT)
         requireDm(context, 'nested')
-        requireFirstCurrentCall(exec, [PERCEPTION_RESULT])
+        requireFirstCurrentCall(context, exec, [PERCEPTION_RESULT])
         exec.concludeTurn()
         return null
       },
@@ -298,7 +287,7 @@ export const recommendNextCharacterToolFactory: TheaterToolFactory = {
         if (args.character === 'dm' || !context.characterIds.includes(args.character)) {
           throw new Error('recommend_next_character.character must name an ordinary Character')
         }
-        if (!hasVoiceOverSinceTerminal(exec)) throw new Error('当前裁定还需要一次成功的 voice_over')
+        if (!hasVoiceOverSinceTerminal(context)) throw new Error('当前裁定还需要一次成功的 voice_over')
         exec.concludeTurn()
         return null
       },
@@ -318,7 +307,7 @@ export const endPerformanceToolFactory: TheaterToolFactory = {
       async execute(args, exec) {
         exact(args, [], END_PERFORMANCE)
         requireDm(context, 'top-level')
-        if (!hasVoiceOverSinceTerminal(exec)) throw new Error('当前裁定还需要一次成功的 voice_over')
+        if (!hasVoiceOverSinceTerminal(context)) throw new Error('当前裁定还需要一次成功的 voice_over')
         exec.concludeTurn()
         return null
       },

@@ -4,7 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MockLlmAdapter, type MockResponse } from '@darwintree/dsh-llm-mock'
-import { characterSessionId } from '@darwintree/dsh-theater'
+import { characterSessionId, createStepDirector } from '@darwintree/dsh-theater'
 import * as Gomoku from '@darwintree/dsh-theater-gomoku'
 import * as GomokuTheater from '@darwintree/dsh-theater-gomoku/theater'
 import * as Example from '@darwintree/dsh-theater-example-three-board-gomoku'
@@ -69,8 +69,15 @@ describe('three-board Gomoku example', () => {
     await ctx.plugin(Example)
 
     const performanceId = SessionId('three-board-example')
-    await ctx.theater.create({ performanceId, presetId: 'three-board-gomoku', cwd: ROOT })
-    for (let turn = 0; turn < 6; turn += 1) await ctx.theater.advance(performanceId)
+    const stepper = createStepDirector()
+    await ctx.theater.create({
+      performanceId,
+      presetId: 'three-board-gomoku',
+      cwd: ROOT,
+      wrapDirector: base => stepper.wrap(base),
+    })
+    for (let turn = 0; turn < 6; turn += 1) await stepper.step()
+    await ctx.theater.stop(performanceId)
 
     const starts = ctx.sessions.get(performanceId)!.snapshotEvents()
       .filter(event => event.type === 'theater/segment-started')

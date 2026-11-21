@@ -1,5 +1,4 @@
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CharacterTurnRead, Director } from '@darwintree/dsh-theater'
 import { successfulToolCalls, type SuccessfulToolCall } from './history.js'
@@ -18,7 +17,7 @@ function text(content: string): readonly ContentBlock[] {
 }
 
 function terminal(turn: CharacterTurnRead): SuccessfulToolCall | undefined {
-  const calls = successfulToolCalls(turn.events)
+  const calls = successfulToolCalls(turn.toolCalls)
   for (let index = calls.length - 1; index >= 0; index -= 1) {
     const call = calls[index]
     if (call?.name === RECOMMEND_NEXT_CHARACTER || call?.name === END_PERFORMANCE) return call
@@ -34,8 +33,8 @@ function isVoiceOverSegment(value: unknown): value is VoiceOverSegment {
     && typeof segment.content === 'string'
 }
 
-function voiceOvers(events: readonly SessionEvent[]): VoiceOverSegment[] {
-  return successfulToolCalls(events, VOICE_OVER).flatMap((call) => {
+function voiceOvers(turn: CharacterTurnRead): VoiceOverSegment[] {
+  return successfulToolCalls(turn.toolCalls, VOICE_OVER).flatMap((call) => {
     const segments = call.arguments.segments
     return Array.isArray(segments) ? segments.filter(isVoiceOverSegment) : []
   })
@@ -51,25 +50,25 @@ function escapeXml(value: string): string {
 }
 
 function publicContent(turn: CharacterTurnRead): readonly ContentBlock[] {
-  return turn.events.flatMap(event => event.type === 'assistant/message'
-    ? event.data.message.content.flatMap((block) => {
-        if (block.type === 'text') return [{
-          type: 'text' as const,
-          text: `<character_message character="${escapeXml(turn.characterId)}">\n${escapeXml(block.text)}\n</character_message>`,
-        }]
-        if (block.type === 'tool-call' && (block.name === THINK || block.name === PERCEIVE_OR_RECALL)) {
-          return [{
-            type: 'text' as const,
-            text: `<character_tool character="${escapeXml(turn.characterId)}" name="${block.name}" />`,
-          }]
-        }
-        return []
-      })
-    : [])
+  return turn.entries.flatMap((entry) => {
+    if (entry.kind === 'text') {
+      return [{
+        type: 'text' as const,
+        text: `<character_message character="${escapeXml(turn.characterId)}">\n${escapeXml(entry.text)}\n</character_message>`,
+      }]
+    }
+    if (entry.kind === 'tool-call' && (entry.name === THINK || entry.name === PERCEIVE_OR_RECALL)) {
+      return [{
+        type: 'text' as const,
+        text: `<character_tool character="${escapeXml(turn.characterId)}" name="${entry.name}" />`,
+      }]
+    }
+    return []
+  })
 }
 
-function dmContent(events: readonly SessionEvent[], characterId: string): readonly ContentBlock[] {
-  return successfulToolCalls(events).flatMap((call) => {
+function dmContent(turn: CharacterTurnRead, characterId: string): readonly ContentBlock[] {
+  return successfulToolCalls(turn.toolCalls).flatMap((call) => {
     if (call.name === VOICE_OVER) {
       const segments = call.arguments.segments
       return Array.isArray(segments)
@@ -99,7 +98,7 @@ function instructionFor(characterId: string, turns: readonly CharacterTurnRead[]
   }
   return turns.slice(previous + 1).flatMap((turn) => {
     if (turn.characterId !== 'dm') return publicContent(turn)
-    return dmContent(turn.events, characterId)
+    return dmContent(turn, characterId)
   })
 }
 
@@ -125,7 +124,7 @@ export function createRolePlayDirector(): Director {
     for (let index = turns.length - 1; index >= 0 && turns[index]?.characterId === 'dm'; index -= 1) attempts += 1
     if (attempts >= 3) throw new Error('DM 连续三轮未完成顶层裁定')
     const adjudication = turns.slice(turns.length - attempts)
-    const hasVoiceOver = adjudication.some(turn => voiceOvers(turn.events).length > 0)
+    const hasVoiceOver = adjudication.some(turn => voiceOvers(turn).length > 0)
     const reason = hasVoiceOver
       ? '上一轮顶层裁定未完成：缺少一次成功的 recommend_next_character 或 end_performance。'
       : '上一轮顶层裁定未完成：缺少一次成功的 voice_over，以及一次成功的 recommend_next_character 或 end_performance。'

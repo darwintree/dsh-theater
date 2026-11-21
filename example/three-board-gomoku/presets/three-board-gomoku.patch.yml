@@ -23,7 +23,6 @@
           - id: performance
             name: '@darwintree/dsh-theater/preset'
             config:
-              autoAdvance: false
               characters:
                 challenger1:
                   systemPrompt: You are Challenger 1. You play black only in game 1 and must make one legal move when instructed.

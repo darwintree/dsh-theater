@@ -7,7 +7,6 @@ const systemPrompts = new Map()
 apply({
   theater: {
     registerTitle() {},
-    registerAutoAdvance() {},
     registerCharacter(character) {
       systemPrompts.set(character.id, character.systemPrompt)
     },

@@ -13,7 +13,7 @@ import {
 import { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
 import { MockLlmAdapter, type Behaviour, type MockResponse } from '@darwintree/dsh-llm-mock'
-import { characterSessionId } from '@darwintree/dsh-theater'
+import { characterSessionId, createTurnLimitDirector } from '@darwintree/dsh-theater'
 import * as RolePlay from '@darwintree/dsh-theater-role-play'
 import { createDshTestContext, extractSystemPrompt } from '../../../tests/harness.ts'
 
@@ -61,7 +61,11 @@ class RolePlayMockAdapter extends LlmAdapter {
   }
 }
 
-async function setup(behaviour: Behaviour, persistenceRoot?: string): Promise<Context> {
+async function setup(
+  behaviour: Behaviour,
+  persistenceRoot?: string,
+  options: { mountStage?: boolean } = {},
+): Promise<Context> {
   const packageRoot = join(here, '..')
   const presetsRoot = join(packageRoot, 'presets')
   const dshHome = await mkdtemp(join(tmpdir(), 'role-play-home-'))
@@ -69,6 +73,7 @@ async function setup(behaviour: Behaviour, persistenceRoot?: string): Promise<Co
   const ctx = await createDshTestContext({
     baseDir: packageRoot,
     ...persistenceRoot === undefined ? {} : { persistenceRoot },
+    ...options.mountStage === undefined ? {} : { mountStage: options.mountStage },
     personaPrefix: 'Host persona.',
     ambientContext: { name: 'test:ambient', order: 0, text: 'ambient runtime context' },
     agentInstructions: { dshHome, maxBytes: 65536, fsCwd: '/' },
@@ -377,9 +382,10 @@ describe('Stage-free Role-play', () => {
     const ctx = await setup(behaviour)
     const performanceId = SessionId('role-play-nested-failure')
     await ctx.theater.create({ performanceId, presetId: 'role-play-v3', cwd: here })
-    await expect(ctx.theater.whenIdle(performanceId)).rejects.toThrow('Character action aborted')
+    await expect(ctx.theater.whenIdle(performanceId)).rejects.toThrow('DM 连续三轮未完成感知/回忆裁定')
 
-    expect(ctx.theater.read(performanceId).phase).toBe('failed')
+    const failed = ctx.theater.read(performanceId)
+    expect(failed.phase).toBe('failed')
     const performance = ctx.sessions.get(performanceId)!
     const starts = performance.snapshotEvents().filter(event => event.type === 'theater/segment-started')
     const ends = performance.snapshotEvents().filter(event => event.type === 'theater/segment-ended')
@@ -391,6 +397,8 @@ describe('Stage-free Role-play', () => {
       ['dm', 'completed'],
       ['rider', 'aborted'],
     ])
+    // Aborted outer Turn does not produce a new Director Point (ADR-0007).
+    expect(failed.forkablePositions.at(-1)).toBeLessThan(performance.snapshotEvents().length)
   })
 
   it('returns an error for a second perception call and continues the same outer ReAct Turn', async () => {
@@ -576,20 +584,31 @@ describe('Stage-free Role-play', () => {
     }
 
     try {
-      const writer = await setup(behaviour, persistenceRoot)
-      let stopped = false
-      writer.on('session/flush', (session) => {
-        if (stopped || session.id !== performanceId
-          || session.snapshotEvents().at(-1)?.type !== 'theater/segment-started') return
-        stopped = true
-        writer.theater.setAutoAdvance(performanceId, false)
+      const writer = await setup(behaviour, persistenceRoot, { mountStage: false })
+      expect(writer.get('stages' as never)).toBeUndefined()
+      const limiter = createTurnLimitDirector(1)
+      await writer.theater.create({
+        performanceId,
+        presetId: 'role-play-v3',
+        cwd: here,
+        wrapDirector: base => limiter.wrap(base),
       })
-      await writer.theater.create({ performanceId, presetId: 'role-play-v3', cwd: here })
-      await writer.theater.whenIdle(performanceId)
-      expect(writer.theater.read(performanceId)).toMatchObject({ phase: 'active', autoAdvance: false, stages: {} })
+      await limiter.whenReached()
+      expect(writer.theater.read(performanceId)).toMatchObject({
+        phase: 'active',
+        activity: 'awaiting-director',
+        stages: {},
+      })
+      await writer.theater.stop(performanceId)
+      expect(writer.theater.read(performanceId)).toMatchObject({
+        phase: 'active',
+        activity: 'idle',
+        stages: {},
+      })
       await writer.fiber.dispose()
 
-      const reader = await setup(behaviour, persistenceRoot)
+      const reader = await setup(behaviour, persistenceRoot, { mountStage: false })
+      expect(reader.get('stages' as never)).toBeUndefined()
       await reader.theater.resume({ performanceId })
       await reader.theater.whenIdle(performanceId)
       expect(reader.theater.read(performanceId)).toMatchObject({ phase: 'completed', stages: {} })
