@@ -9,6 +9,28 @@ import {
   validateAndApplyGomokuMove,
 } from './state.js'
 
+function parseGomokuOp(op: JsonValue): GomokuOp {
+  if (typeof op !== 'object' || op === null || Array.isArray(op)) {
+    throw new Error('Gomoku op must be an object')
+  }
+  const record = op as Record<string, unknown>
+  if (record.type !== 'place-stone') {
+    throw new Error(`unknown Gomoku op type: ${String(record.type)}`)
+  }
+  if (record.color !== 'black' && record.color !== 'white') {
+    throw new Error('Gomoku op color must be black or white')
+  }
+  if (typeof record.x !== 'number' || typeof record.y !== 'number') {
+    throw new Error('Gomoku op coordinates must be numbers')
+  }
+  return {
+    type: 'place-stone',
+    color: record.color,
+    x: record.x,
+    y: record.y,
+  }
+}
+
 /**
  * A pure Gomoku State Machine: it owns live board state and the deterministic
  * domain rules (rotation, bounds, occupancy, win/draw, terminal rejection). It
@@ -26,13 +48,7 @@ export class GomokuMachine implements StateMachine {
   }
 
   transition(op: JsonValue) {
-    const move = op as unknown as GomokuOp
-    if (move.type !== 'place-stone') {
-      return { kind: 'domain-rejected' as const, reason: 'unknown Gomoku interaction' }
-    }
-    if (move.color !== 'black' && move.color !== 'white') {
-      return { kind: 'domain-rejected' as const, reason: 'stone color must be black or white' }
-    }
+    const move = parseGomokuOp(op)
     const transition = validateAndApplyGomokuMove(this.state, this.config, move)
     if (!transition.ok) return { kind: 'domain-rejected' as const, reason: transition.reason }
     this.state = transition.state

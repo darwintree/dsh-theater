@@ -139,9 +139,16 @@ describe('Gomoku State Machine rules', () => {
     expect(machine.completed).toBe(false)
   })
 
-  it('rejects an unknown interaction kind via the machine', () => {
+  it('throws on malformed Ops or unknown Op types without changing state', () => {
     const machine = new GomokuMachine(NINE)
-    expect(machine.transition({ type: 'pass' } as unknown as never))
-      .toEqual({ kind: 'domain-rejected', reason: 'unknown Gomoku interaction' })
+    expect(() => machine.transition(null)).toThrow('Gomoku op must be an object')
+    expect(() => machine.transition([] as unknown as never)).toThrow('Gomoku op must be an object')
+    expect(() => machine.transition({ type: 'pass' })).toThrow('unknown Gomoku op type: pass')
+    expect(() => machine.transition({ type: 'place-stone', color: 'red', x: 0, y: 0 }))
+      .toThrow('Gomoku op color must be black or white')
+    expect(() => machine.transition({ type: 'place-stone', color: 'black', x: '0', y: 0 }))
+      .toThrow('Gomoku op coordinates must be numbers')
+    expect((machine.read() as GomokuState).moveNumber).toBe(0)
+    expect((machine.read() as GomokuState).currentPlayer).toBe('black')
   })
 });
